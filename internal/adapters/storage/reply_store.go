@@ -80,14 +80,27 @@ func (s *SQLiteReplyStore) AddPendingReply(item domain.ApprovalQueueItem) error 
 	return err
 }
 
-// GetPendingReplies returns pending replies for an account
+// GetPendingReplies returns pending replies for an account (or all if accountID is empty)
 func (s *SQLiteReplyStore) GetPendingReplies(accountID string) ([]domain.ApprovalQueueItem, error) {
-	rows, err := s.db.Query(`
-		SELECT id, reply_json, original_tweet_json, queued_at, expires_at
-		FROM pending_replies
-		WHERE account_id = ? AND expires_at > ?
-		ORDER BY queued_at ASC`,
-		accountID, time.Now())
+	var rows *sql.Rows
+	var err error
+
+	if accountID == "" {
+		// Return all pending replies when no account specified
+		rows, err = s.db.Query(`
+			SELECT id, reply_json, original_tweet_json, queued_at, expires_at
+			FROM pending_replies
+			WHERE expires_at > ?
+			ORDER BY queued_at ASC`,
+			time.Now())
+	} else {
+		rows, err = s.db.Query(`
+			SELECT id, reply_json, original_tweet_json, queued_at, expires_at
+			FROM pending_replies
+			WHERE account_id = ? AND expires_at > ?
+			ORDER BY queued_at ASC`,
+			accountID, time.Now())
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -193,32 +193,42 @@ Guidelines:
 func (c *OpenAIClient) buildUserPrompt(req ports.ReplyRequest) string {
 	var sb strings.Builder
 
-	sb.WriteString("Generate a reply to this tweet:\n\n")
-	sb.WriteString(fmt.Sprintf("Tweet: \"%s\"\n", req.OriginalTweet.Text))
+	// Post content
+	sb.WriteString("## Post Content\n")
+	sb.WriteString(fmt.Sprintf("@%s: %s\n\n", req.OriginalTweet.AuthorUsername, req.OriginalTweet.Text))
 
+	// Author bio
 	if req.AuthorBio != "" {
-		sb.WriteString(fmt.Sprintf("Author bio: %s\n", req.AuthorBio))
+		sb.WriteString("## Author Bio\n")
+		sb.WriteString(fmt.Sprintf("%s\n\n", req.AuthorBio))
 	}
 
+	// Thread context
 	if len(req.ThreadContext) > 0 {
-		sb.WriteString("\nThread context:\n")
+		sb.WriteString("## Thread Context\n")
 		for i, t := range req.ThreadContext {
-			if i >= 3 { // Limit context
+			if i >= 3 {
 				break
 			}
-			sb.WriteString(fmt.Sprintf("- %s\n", t.Text))
+			sb.WriteString(fmt.Sprintf("- @%s: %s\n", t.AuthorUsername, t.Text))
 		}
+		sb.WriteString("\n")
 	}
 
+	// Matched keywords for context
 	if len(req.Keywords) > 0 {
-		sb.WriteString(fmt.Sprintf("\nMatched keywords: %s\n", strings.Join(req.Keywords, ", ")))
+		sb.WriteString("## Matched Keywords\n")
+		sb.WriteString(fmt.Sprintf("%s\n\n", strings.Join(req.Keywords, ", ")))
 	}
 
-	if req.MaxLength > 0 {
-		sb.WriteString(fmt.Sprintf("\nMaximum reply length: %d characters\n", req.MaxLength))
+	// Instructions
+	sb.WriteString("## Task\n")
+	maxLen := req.MaxLength
+	if maxLen <= 0 {
+		maxLen = 260
 	}
-
-	sb.WriteString("\nGenerate only the reply text, nothing else.")
+	sb.WriteString(fmt.Sprintf("Write a reply to this post in %d characters or less.\n", maxLen))
+	sb.WriteString("Output only the reply text, nothing else.")
 
 	return sb.String()
 }

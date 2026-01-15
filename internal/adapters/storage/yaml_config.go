@@ -207,7 +207,7 @@ func (s *YAMLConfigStore) CreateExampleConfig() error {
 			APIKey:      "your_openai_api_key",
 			Model:       "gpt-4o-mini",
 			Temperature: 0.7,
-			MaxTokens:   280,
+			MaxTokens:   20000,
 			Persona:     "You are a helpful assistant that replies to tweets.",
 		},
 		SearchConfig: domain.SearchConfig{

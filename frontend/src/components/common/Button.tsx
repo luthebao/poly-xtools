@@ -21,10 +21,11 @@ const sizes = {
 };
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant = 'primary', size = 'md', loading, children, disabled, className = '', ...props }, ref) => {
+  ({ variant = 'primary', size = 'md', loading, children, disabled, className = '', type = 'button', ...props }, ref) => {
     return (
       <button
         ref={ref}
+        type={type}
         disabled={disabled || loading}
         className={`inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${variants[variant]} ${sizes[size]} ${className}`}
         {...props}

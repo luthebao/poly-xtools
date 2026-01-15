@@ -1,17 +1,20 @@
 import { useState, useEffect } from 'react';
-import { X, Save, Plus, Trash2 } from 'lucide-react';
+import { X, Save, Plus, Trash2, Key, Loader2 } from 'lucide-react';
 import Button from './common/Button';
 import { AccountConfig } from '../types';
+import { ExtractCookies } from '../../wailsjs/go/main/App';
 
 interface AccountEditorProps {
   account: AccountConfig | null;
   isCreating?: boolean;
   onSave: (account: AccountConfig) => void;
   onClose: () => void;
+  showToast?: (message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
 }
 
-export default function AccountEditor({ account, isCreating, onSave, onClose }: AccountEditorProps) {
+export default function AccountEditor({ account, isCreating, onSave, onClose, showToast }: AccountEditorProps) {
   const [formData, setFormData] = useState<Partial<AccountConfig>>({});
+  const [isExtracting, setIsExtracting] = useState(false);
 
   useEffect(() => {
     if (account) {
@@ -59,6 +62,24 @@ export default function AccountEditor({ account, isCreating, onSave, onClose }: 
     const newArray = [...currentArray];
     newArray[index] = value;
     handleChange(path, newArray);
+  };
+
+  const handleExtractCookies = async () => {
+    setIsExtracting(true);
+    showToast?.('Browser opening... Please log in to Twitter', 'info');
+
+    try {
+      const auth = await ExtractCookies();
+      if (auth) {
+        handleChange('browserAuth', auth);
+        showToast?.('Cookies extracted successfully!', 'success');
+      }
+    } catch (err: any) {
+      const errorMsg = typeof err === 'string' ? err : (err?.message || 'Failed to extract cookies');
+      showToast?.(errorMsg, 'error');
+    } finally {
+      setIsExtracting(false);
+    }
   };
 
   return (
@@ -134,19 +155,40 @@ export default function AccountEditor({ account, isCreating, onSave, onClose }: 
                   Browser Authentication
                   <span className="text-xs text-blue-400 ml-2">(for searching)</span>
                 </h3>
-                <div className="bg-gray-700/50 rounded-lg p-3">
-                  <p className="text-sm text-gray-400 mb-2">
+                <div className="space-y-3">
+                  <div className="p-3 bg-yellow-900/20 border border-yellow-700/50 rounded-lg">
+                    <p className="text-yellow-400 text-sm">
+                      This will open a browser window. Log in to Twitter/X, and cookies will be automatically extracted after successful login.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <Button
+                      type="button"
+                      onClick={handleExtractCookies}
+                      disabled={isExtracting}
+                    >
+                      {isExtracting ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" />
+                          Waiting for login...
+                        </>
+                      ) : (
+                        <>
+                          <Key size={16} />
+                          Extract Cookies from Browser
+                        </>
+                      )}
+                    </Button>
+
                     {formData.browserAuth?.cookies?.length ? (
-                      <span className="text-green-400">
+                      <span className="text-green-400 text-sm">
                         {formData.browserAuth.cookies.length} cookies configured
                       </span>
                     ) : (
-                      <span className="text-yellow-400">No cookies configured</span>
+                      <span className="text-yellow-400 text-sm">No cookies configured</span>
                     )}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Use "Extract Cookies" in Settings page to capture browser cookies
-                  </p>
+                  </div>
                 </div>
               </section>
             )}

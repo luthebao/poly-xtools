@@ -63,7 +63,9 @@ export namespace domain {
 	    excludeKeywords: string[];
 	    blocklist: string[];
 	    englishOnly: boolean;
-	    minFollowers: number;
+	    minFaves: number;
+	    minReplies: number;
+	    minRetweets: number;
 	    maxAgeMins: number;
 	    intervalSecs: number;
 	
@@ -77,7 +79,9 @@ export namespace domain {
 	        this.excludeKeywords = source["excludeKeywords"];
 	        this.blocklist = source["blocklist"];
 	        this.englishOnly = source["englishOnly"];
-	        this.minFollowers = source["minFollowers"];
+	        this.minFaves = source["minFaves"];
+	        this.minReplies = source["minReplies"];
+	        this.minRetweets = source["minRetweets"];
 	        this.maxAgeMins = source["maxAgeMins"];
 	        this.intervalSecs = source["intervalSecs"];
 	    }
