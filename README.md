@@ -1,25 +1,41 @@
-## About
+# XTools
 
-Wails template which includes: Vite, React, TS, TailwindCSS out of the box.
+A Twitter/X automation desktop app for keyword-based tweet discovery and AI-powered reply generation.
 
-Build with `Wails CLI v2.0.0`.
+## Features
 
-To use this [template](https://wails.io/docs/community/templates):
+- **Multi-account support** - Manage multiple Twitter accounts with individual configurations
+- **Keyword search** - Find tweets matching your keywords with filters (min likes, retweets, age)
+- **AI reply generation** - Generate contextual replies using OpenAI-compatible LLMs
+- **Approval queue** - Review and approve replies before posting, or enable auto-post mode
+- **Browser authentication** - Use cookie-based auth for searching (bypasses API limitations)
+- **Rate limiting** - Built-in rate limiting to avoid Twitter API restrictions
 
-```shell
-wails init -n "Your Project Name" -t https://github.com/hotafrika/wails-vite-react-ts-tailwind-template
-cd frontend/src
-npm install
+## Tech Stack
+
+- **Backend**: Go with Hexagonal Architecture
+- **Frontend**: React + TypeScript + TailwindCSS
+- **Desktop**: Wails v2
+- **Storage**: SQLite + YAML configs
+
+## Quick Start
+
+```bash
+# Prerequisites
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+cd frontend && pnpm install
+
+# Development
+wails dev
+
+# Build
+wails build
 ```
 
-[Here](scripts) you can find useful scripts for building on different platforms and Wails CLI installation.
+## Configuration
 
-## Live Development
+Account configs are stored in `data/accounts/*.yml`. Each account requires:
 
-To run in live development mode, run `wails dev` in the project directory. In another terminal, go into the `frontend`
-directory and run `npm run dev`. The frontend dev server will run on <http://localhost:34115>. Connect to this in your
-browser and connect to your application.
-
-## Building
-
-To build a redistributable, production mode package, use `wails build`.
+- API credentials (for posting replies)
+- Browser cookies (optional, for searching via browser automation)
+- LLM configuration (API key, model, persona)

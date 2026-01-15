@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Use pnpm (not npm/yarn) for frontend dependencies
 - Maximum Go file length: 200-300 lines. Break longer files into focused modules.
 - Never generate icons/images in Go code - use external image files
+- Wails webview doesn't support `window.confirm()` / `window.alert()` - use custom modal components instead
 
 ## Build & Development Commands
 
@@ -21,14 +22,18 @@ wails dev
 # Production build
 wails build
 
+# Frontend only (from frontend/)
+pnpm run build
+pnpm run dev
+
+# Go only (from root)
+go build .
+
 # Platform builds (scripts/)
 ./scripts/build-macos.sh        # macOS universal
 ./scripts/build-macos-arm.sh    # macOS ARM
 ./scripts/build-macos-intel.sh  # macOS Intel
 ./scripts/build-windows.sh      # Windows
-
-# Go only
-go build .
 ```
 
 ## Architecture
@@ -118,5 +123,21 @@ Frontend calls via generated bindings in `frontend/wailsjs/go/main/App.js`.
 ### Account Config Requirements
 
 Browser-type accounts need both:
-1. `browser_auth.cookies` - for searching (extracted via Settings page)
+1. `browser_auth.cookies` - for searching (extracted via Account Editor modal)
 2. `api_credentials` (apiKey, apiSecret, accessToken, accessSecret) - for posting replies
+
+## Frontend Error Handling
+
+Wails returns Go errors as **strings**, not objects. Always handle errors like:
+```typescript
+catch (err: any) {
+  const errorMsg = typeof err === 'string' ? err : (err?.message || 'Default error');
+  showToast(errorMsg, 'error');
+}
+```
+
+## LLM Prompt Structure
+
+The LLM reply generation uses a two-part prompt:
+- **System prompt**: `llm_config.persona` from account config (defines bot personality)
+- **User prompt**: Built dynamically with post content, author bio, thread context, and character limit instruction
