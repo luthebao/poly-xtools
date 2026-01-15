@@ -5,3 +5,4 @@ frontend/dist
 frontend/node_modules/.modules.yaml
 data/**/*
 data-*/**/*
+xtools
