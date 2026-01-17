@@ -96,8 +96,10 @@ Frontend calls via generated bindings in `frontend/wailsjs/go/main/App.js`.
 - **State**: Zustand stores in `store/` (accountStore, replyStore, searchStore, uiStore)
 - **Routing**: React Router with Layout wrapper
 - **Pages**: Dashboard, Accounts, Search, Replies, Metrics, Settings
-- **Components**: `components/common/` for shared UI (Card, Button, Layout, Sidebar, Toast)
+- **UI Components**: Uses shadcn/ui (`components/ui/`) with Radix primitives + Tailwind
+- **Common Components**: `components/common/` for Layout, Sidebar, ConfirmModal
 - **Types**: `types/index.ts` mirrors Go domain types
+- **Utils**: `lib/utils.ts` exports `cn()` for className merging
 
 ### Data Flow
 
@@ -116,19 +118,35 @@ Frontend calls via generated bindings in `frontend/wailsjs/go/main/App.js`.
 
 ### Configuration
 
-- Account configs: `data/accounts/*.yml` (one file per account)
-- Database: `data/xtools.db` (SQLite with WAL mode)
-- Exports: `data/exports/` (Excel files per account)
+Data stored in OS-specific application directory:
+
+- **macOS**: `~/Library/Application Support/XTools/`
+- **Windows**: `%AppData%/XTools/`
+- **Linux**: `~/.config/XTools/`
+
+Within the data directory:
+
+- `accounts/*.yml` - Account configs (one file per account)
+- `xtools.db` - SQLite database with WAL mode (metrics, replies)
+- `exports/` - Excel files per account
+
+### Version & Updates
+
+- Version constant: `internal/version/version.go` - update before releases
+- Updater: `internal/adapters/updater/` - checks GitHub releases API
+- Frontend calls `GetAppVersion()` and `CheckForUpdates()` via Wails bindings
 
 ### Account Config Requirements
 
 Browser-type accounts need both:
+
 1. `browser_auth.cookies` - for searching (extracted via Account Editor modal)
 2. `api_credentials` (apiKey, apiSecret, accessToken, accessSecret) - for posting replies
 
 ## Frontend Error Handling
 
 Wails returns Go errors as **strings**, not objects. Always handle errors like:
+
 ```typescript
 catch (err: any) {
   const errorMsg = typeof err === 'string' ? err : (err?.message || 'Default error');
@@ -139,5 +157,16 @@ catch (err: any) {
 ## LLM Prompt Structure
 
 The LLM reply generation uses a two-part prompt:
+
 - **System prompt**: `llm_config.persona` from account config (defines bot personality)
 - **User prompt**: Built dynamically with post content, author bio, thread context, and character limit instruction
+
+## Adding shadcn/ui Components
+
+Use the shadcn CLI from the frontend directory:
+
+```bash
+cd frontend && pnpm dlx shadcn@latest add <component-name>
+```
+
+Components are placed in `frontend/src/components/ui/` and re-exported from `index.ts`.

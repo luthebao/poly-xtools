@@ -10,11 +10,12 @@ A Twitter/X automation desktop app for keyword-based tweet discovery and AI-powe
 - **Approval queue** - Review and approve replies before posting, or enable auto-post mode
 - **Browser authentication** - Use cookie-based auth for searching (bypasses API limitations)
 - **Rate limiting** - Built-in rate limiting to avoid Twitter API restrictions
+- **Auto-updates** - Check for new releases from GitHub
 
 ## Tech Stack
 
 - **Backend**: Go with Hexagonal Architecture
-- **Frontend**: React + TypeScript + TailwindCSS
+- **Frontend**: React + TypeScript + shadcn/ui + TailwindCSS
 - **Desktop**: Wails v2
 - **Storage**: SQLite + YAML configs
 
@@ -34,7 +35,13 @@ wails build
 
 ## Configuration
 
-Account configs are stored in `data/accounts/*.yml`. Each account requires:
+Data is stored in the OS-specific application directory:
+
+- **macOS**: `~/Library/Application Support/XTools/`
+- **Windows**: `%AppData%/XTools/`
+- **Linux**: `~/.config/XTools/`
+
+Each account config (`accounts/*.yml`) requires:
 
 - API credentials (for posting replies)
 - Browser cookies (optional, for searching via browser automation)
