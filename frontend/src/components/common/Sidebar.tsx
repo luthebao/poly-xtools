@@ -7,6 +7,8 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  Activity,
+  Wallet,
 } from 'lucide-react';
 import { useUIStore } from '../../store/uiStore';
 import { Button } from '../ui/button';
@@ -15,10 +17,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/
 import { cn } from '../../lib/utils';
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/accounts', icon: Users, label: 'Accounts' },
   { to: '/search', icon: Search, label: 'Search' },
   { to: '/metrics', icon: BarChart3, label: 'Metrics' },
+  { to: '/polymarket', icon: Activity, label: 'Polymarket Live', end: true },
+  { to: '/polymarket/wallets', icon: Wallet, label: 'Wallets' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
@@ -50,11 +54,12 @@ export default function Sidebar() {
         <Separator />
 
         <nav className="flex-1 p-2 space-y-1">
-          {navItems.map(({ to, icon: Icon, label }) => {
+          {navItems.map(({ to, icon: Icon, label, end }) => {
             const linkContent = (
               <NavLink
                 key={to}
                 to={to}
+                end={end}
                 className={({ isActive }) =>
                   cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors",

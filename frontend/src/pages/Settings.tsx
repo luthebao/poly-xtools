@@ -1,20 +1,29 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, RefreshCw, FileText, Download, ExternalLink, Check } from 'lucide-react';
+import { FolderOpen, RefreshCw, FileText, Download, ExternalLink, Check, Trash2, AlertTriangle, Database } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import { Badge } from '../components/ui/badge';
+import ConfirmModal from '../components/common/ConfirmModal';
 import { useUIStore } from '../store/uiStore';
-import { UpdateInfo } from '../types';
-import { CheckForUpdates, GetAppVersion } from '../../wailsjs/go/main/App';
+import { UpdateInfo, DatabaseInfo } from '../types';
+import { CheckForUpdates, GetAppVersion, GetDataDir, GetDatabaseInfo, ClearPolymarketEvents } from '../../wailsjs/go/main/App';
 
 export default function Settings() {
     const { showToast } = useUIStore();
     const [version, setVersion] = useState<string>('');
     const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
     const [isChecking, setIsChecking] = useState(false);
+    const [dataDir, setDataDir] = useState<string>('');
+    const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
+    const [isClearing, setIsClearing] = useState(false);
+    const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+    const DB_SIZE_WARNING_THRESHOLD = 20 * 1024 * 1024; // 20MB
 
     useEffect(() => {
         loadVersion();
+        loadDataDir();
+        loadDbInfo();
     }, []);
 
     const loadVersion = async () => {
@@ -23,6 +32,39 @@ export default function Settings() {
             setVersion(v);
         } catch (err) {
             console.error('Failed to get version:', err);
+        }
+    };
+
+    const loadDataDir = async () => {
+        try {
+            const dir = await GetDataDir();
+            setDataDir(dir);
+        } catch (err) {
+            console.error('Failed to get data dir:', err);
+        }
+    };
+
+    const loadDbInfo = async () => {
+        try {
+            const info = await GetDatabaseInfo();
+            setDbInfo(info);
+        } catch (err) {
+            console.error('Failed to get db info:', err);
+        }
+    };
+
+    const handleClearData = async () => {
+        setIsClearing(true);
+        try {
+            await ClearPolymarketEvents();
+            showToast('Polymarket data cleared successfully', 'success');
+            loadDbInfo();
+        } catch (err: any) {
+            const errorMsg = typeof err === 'string' ? err : (err?.message || 'Failed to clear data');
+            showToast(errorMsg, 'error');
+        } finally {
+            setIsClearing(false);
+            setShowClearConfirm(false);
         }
     };
 
@@ -53,6 +95,81 @@ export default function Settings() {
     return (
         <div className="space-y-6">
             <h1 className="text-2xl font-bold">Settings</h1>
+
+            <Card title="Data Directory">
+                <div className="space-y-4">
+                    <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground">
+                            All application data is stored in the following directory:
+                        </p>
+                        <div className="flex items-center gap-2">
+                            <code className="flex-1 bg-secondary px-3 py-2 rounded text-sm font-mono break-all">
+                                {dataDir || 'Loading...'}
+                            </code>
+                            <Button variant="secondary" size="sm">
+                                <FolderOpen size={16} />
+                                Open
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            </Card>
+
+            <Card title="Database">
+                <div className="space-y-4">
+                    {dbInfo && (
+                        <>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="space-y-1">
+                                    <p className="text-sm text-muted-foreground">Size</p>
+                                    <div className="flex items-center gap-2">
+                                        <Database size={16} className="text-muted-foreground" />
+                                        <span className="font-medium">{dbInfo.sizeFormatted}</span>
+                                        {dbInfo.sizeBytes > DB_SIZE_WARNING_THRESHOLD && (
+                                            <Badge variant="destructive" className="ml-1">
+                                                <AlertTriangle size={12} className="mr-1" />
+                                                Large
+                                            </Badge>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="text-sm text-muted-foreground">Polymarket Events</p>
+                                    <p className="font-medium">{dbInfo.eventCount.toLocaleString()}</p>
+                                </div>
+                            </div>
+
+                            {dbInfo.sizeBytes > DB_SIZE_WARNING_THRESHOLD && (
+                                <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-start gap-3">
+                                    <AlertTriangle size={18} className="text-destructive mt-0.5" />
+                                    <div>
+                                        <p className="text-sm font-medium text-destructive">Database Size Warning</p>
+                                        <p className="text-sm text-muted-foreground">
+                                            The database is over 20MB. Consider clearing old Polymarket events to free up space.
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex items-center gap-2 pt-2 border-t border-border">
+                                <Button
+                                    variant="danger"
+                                    size="sm"
+                                    onClick={() => setShowClearConfirm(true)}
+                                    disabled={isClearing || dbInfo.eventCount === 0}
+                                >
+                                    <Trash2 size={16} />
+                                    Clear Polymarket Data
+                                </Button>
+                                <Button variant="ghost" size="sm" onClick={loadDbInfo}>
+                                    <RefreshCw size={16} />
+                                    Refresh
+                                </Button>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </Card>
 
             <Card title="Configuration Files">
                 <div className="space-y-4">
@@ -180,6 +297,16 @@ export default function Settings() {
                     </div>
                 </div>
             </Card>
+
+            <ConfirmModal
+                isOpen={showClearConfirm}
+                onCancel={() => setShowClearConfirm(false)}
+                onConfirm={handleClearData}
+                title="Clear Polymarket Data"
+                message="Are you sure you want to delete all Polymarket events from the database? This action cannot be undone."
+                confirmText="Clear Data"
+                variant="danger"
+            />
         </div>
     );
 }

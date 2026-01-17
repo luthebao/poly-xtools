@@ -1,8 +1,10 @@
 # XTools
 
-A Twitter/X automation desktop app for keyword-based tweet discovery and AI-powered reply generation.
+A multi-purpose desktop app featuring Twitter/X automation and Polymarket trade monitoring with fresh wallet detection.
 
 ## Features
+
+### Twitter Automation
 
 - **Multi-account support** - Manage multiple Twitter accounts with individual configurations
 - **Keyword search** - Find tweets matching your keywords with filters (min likes, retweets, age)
@@ -10,7 +12,20 @@ A Twitter/X automation desktop app for keyword-based tweet discovery and AI-powe
 - **Approval queue** - Review and approve replies before posting, or enable auto-post mode
 - **Browser authentication** - Use cookie-based auth for searching (bypasses API limitations)
 - **Rate limiting** - Built-in rate limiting to avoid Twitter API restrictions
+
+### Polymarket Watcher
+
+- **Live trade feed** - Real-time WebSocket connection to Polymarket trade data
+- **Fresh wallet detection** - Identify new/insider wallets based on total trade count
+- **Configurable thresholds** - Set custom bet count thresholds for freshness levels (insider, fresh, newbie)
+- **Trade filtering** - Filter by minimum value, side (buy/sell), market name
+- **Wallet tracking** - Background analysis of wallet profiles with auto-refresh
+- **Sortable wallet table** - View all tracked wallets with sorting and filtering
+
+### General
+
 - **Auto-updates** - Check for new releases from GitHub
+- **Cross-platform** - macOS, Windows, Linux support
 
 ## Tech Stack
 
@@ -41,8 +56,19 @@ Data is stored in the OS-specific application directory:
 - **Windows**: `%AppData%/XTools/`
 - **Linux**: `~/.config/XTools/`
 
+### Twitter Accounts
+
 Each account config (`accounts/*.yml`) requires:
 
 - API credentials (for posting replies)
 - Browser cookies (optional, for searching via browser automation)
 - LLM configuration (API key, model, persona)
+
+### Polymarket Settings
+
+Fresh wallet detection thresholds are configurable in the app:
+
+- **Insider** (0-3 bets): Highest confidence, likely insider
+- **Fresh** (0-10 bets): Very new wallet
+- **Newbie** (0-20 bets): New user
+- **Custom**: User-defined threshold

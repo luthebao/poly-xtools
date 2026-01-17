@@ -18,6 +18,7 @@ type Handlers struct {
 	accountSvc     *services.AccountService
 	searchSvc      *services.SearchService
 	replySvc       *services.ReplyService
+	polymarketSvc  *services.PolymarketService
 	workerPool     *workers.WorkerPool
 	configStore    ports.ConfigStore
 	metricsStore   ports.MetricsStore
@@ -31,6 +32,7 @@ func NewHandlers(
 	accountSvc *services.AccountService,
 	searchSvc *services.SearchService,
 	replySvc *services.ReplyService,
+	polymarketSvc *services.PolymarketService,
 	workerPool *workers.WorkerPool,
 	configStore ports.ConfigStore,
 	metricsStore ports.MetricsStore,
@@ -41,6 +43,7 @@ func NewHandlers(
 		accountSvc:     accountSvc,
 		searchSvc:      searchSvc,
 		replySvc:       replySvc,
+		polymarketSvc:  polymarketSvc,
 		workerPool:     workerPool,
 		configStore:    configStore,
 		metricsStore:   metricsStore,
@@ -321,4 +324,91 @@ func (h *Handlers) CheckForUpdates() (*updater.UpdateInfo, error) {
 // GetAppVersion returns the current application version
 func (h *Handlers) GetAppVersion() string {
 	return h.updater.GetCurrentVersion()
+}
+
+// === Polymarket Handlers ===
+
+// StartPolymarketWatcher starts the Polymarket WebSocket watcher
+func (h *Handlers) StartPolymarketWatcher() error {
+	if h.polymarketSvc == nil {
+		return fmt.Errorf("polymarket service not initialized")
+	}
+	return h.polymarketSvc.Start()
+}
+
+// StopPolymarketWatcher stops the Polymarket WebSocket watcher
+func (h *Handlers) StopPolymarketWatcher() {
+	if h.polymarketSvc != nil {
+		h.polymarketSvc.Stop()
+	}
+}
+
+// GetPolymarketWatcherStatus returns the current watcher status
+func (h *Handlers) GetPolymarketWatcherStatus() domain.PolymarketWatcherStatus {
+	if h.polymarketSvc == nil {
+		return domain.PolymarketWatcherStatus{}
+	}
+	return h.polymarketSvc.GetStatus()
+}
+
+// GetPolymarketEvents returns Polymarket events with optional filtering
+func (h *Handlers) GetPolymarketEvents(filter domain.PolymarketEventFilter) ([]domain.PolymarketEvent, error) {
+	if h.polymarketSvc == nil {
+		return nil, fmt.Errorf("polymarket service not initialized")
+	}
+	return h.polymarketSvc.GetEvents(filter)
+}
+
+// ClearPolymarketEvents removes all stored Polymarket events
+func (h *Handlers) ClearPolymarketEvents() error {
+	if h.polymarketSvc == nil {
+		return fmt.Errorf("polymarket service not initialized")
+	}
+	return h.polymarketSvc.ClearEvents()
+}
+
+// GetDatabaseInfo returns database statistics
+func (h *Handlers) GetDatabaseInfo() (*domain.DatabaseInfo, error) {
+	if h.polymarketSvc == nil {
+		return nil, fmt.Errorf("polymarket service not initialized")
+	}
+	return h.polymarketSvc.GetDatabaseInfo()
+}
+
+// SetPolymarketSaveFilter sets the filter for saving events to database
+func (h *Handlers) SetPolymarketSaveFilter(filter domain.PolymarketEventFilter) {
+	if h.polymarketSvc != nil {
+		h.polymarketSvc.SetSaveFilter(filter)
+	}
+}
+
+// GetPolymarketSaveFilter returns the current save filter
+func (h *Handlers) GetPolymarketSaveFilter() domain.PolymarketEventFilter {
+	if h.polymarketSvc == nil {
+		return domain.PolymarketEventFilter{}
+	}
+	return h.polymarketSvc.GetSaveFilter()
+}
+
+// GetPolymarketConfig returns the current Polymarket configuration
+func (h *Handlers) GetPolymarketConfig() domain.PolymarketConfig {
+	if h.polymarketSvc == nil {
+		return domain.DefaultPolymarketConfig()
+	}
+	return h.polymarketSvc.GetConfig()
+}
+
+// SetPolymarketConfig updates the Polymarket configuration
+func (h *Handlers) SetPolymarketConfig(config domain.PolymarketConfig) {
+	if h.polymarketSvc != nil {
+		h.polymarketSvc.UpdateConfig(config)
+	}
+}
+
+// GetPolymarketWallets returns all wallets from the database
+func (h *Handlers) GetPolymarketWallets(limit int) ([]domain.WalletProfile, error) {
+	if h.polymarketSvc == nil {
+		return nil, fmt.Errorf("polymarket service not initialized")
+	}
+	return h.polymarketSvc.GetWallets(limit)
 }

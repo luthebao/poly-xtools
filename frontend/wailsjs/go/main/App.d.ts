@@ -9,6 +9,8 @@ export function CheckForUpdates():Promise<updater.UpdateInfo>;
 
 export function ClearActivityLogs(arg1:string):Promise<void>;
 
+export function ClearPolymarketEvents():Promise<void>;
+
 export function CreateAccount(arg1:domain.AccountConfig):Promise<void>;
 
 export function DeleteAccount(arg1:string):Promise<void>;
@@ -39,9 +41,21 @@ export function GetDailyStats(arg1:string,arg2:number):Promise<Array<domain.Dail
 
 export function GetDataDir():Promise<string>;
 
+export function GetDatabaseInfo():Promise<domain.DatabaseInfo>;
+
 export function GetExportPath(arg1:string):Promise<string>;
 
 export function GetPendingReplies(arg1:string):Promise<Array<domain.ApprovalQueueItem>>;
+
+export function GetPolymarketConfig():Promise<domain.PolymarketConfig>;
+
+export function GetPolymarketEvents(arg1:domain.PolymarketEventFilter):Promise<Array<domain.PolymarketEvent>>;
+
+export function GetPolymarketSaveFilter():Promise<domain.PolymarketEventFilter>;
+
+export function GetPolymarketWallets(arg1:number):Promise<Array<domain.WalletProfile>>;
+
+export function GetPolymarketWatcherStatus():Promise<domain.PolymarketWatcherStatus>;
 
 export function GetProfileHistory(arg1:string,arg2:number):Promise<Array<domain.ProfileSnapshot>>;
 
@@ -65,9 +79,17 @@ export function SaveBrowserAuth(arg1:string,arg2:domain.BrowserAuth):Promise<voi
 
 export function SearchTweets(arg1:string):Promise<Array<domain.Tweet>>;
 
+export function SetPolymarketConfig(arg1:domain.PolymarketConfig):Promise<void>;
+
+export function SetPolymarketSaveFilter(arg1:domain.PolymarketEventFilter):Promise<void>;
+
 export function StartAccount(arg1:string):Promise<void>;
 
+export function StartPolymarketWatcher():Promise<void>;
+
 export function StopAccount(arg1:string):Promise<void>;
+
+export function StopPolymarketWatcher():Promise<void>;
 
 export function TestAccountConnection(arg1:string):Promise<void>;
 

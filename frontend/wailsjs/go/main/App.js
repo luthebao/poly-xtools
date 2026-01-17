@@ -14,6 +14,10 @@ export function ClearActivityLogs(arg1) {
   return window['go']['main']['App']['ClearActivityLogs'](arg1);
 }
 
+export function ClearPolymarketEvents() {
+  return window['go']['main']['App']['ClearPolymarketEvents']();
+}
+
 export function CreateAccount(arg1) {
   return window['go']['main']['App']['CreateAccount'](arg1);
 }
@@ -74,12 +78,36 @@ export function GetDataDir() {
   return window['go']['main']['App']['GetDataDir']();
 }
 
+export function GetDatabaseInfo() {
+  return window['go']['main']['App']['GetDatabaseInfo']();
+}
+
 export function GetExportPath(arg1) {
   return window['go']['main']['App']['GetExportPath'](arg1);
 }
 
 export function GetPendingReplies(arg1) {
   return window['go']['main']['App']['GetPendingReplies'](arg1);
+}
+
+export function GetPolymarketConfig() {
+  return window['go']['main']['App']['GetPolymarketConfig']();
+}
+
+export function GetPolymarketEvents(arg1) {
+  return window['go']['main']['App']['GetPolymarketEvents'](arg1);
+}
+
+export function GetPolymarketSaveFilter() {
+  return window['go']['main']['App']['GetPolymarketSaveFilter']();
+}
+
+export function GetPolymarketWallets(arg1) {
+  return window['go']['main']['App']['GetPolymarketWallets'](arg1);
+}
+
+export function GetPolymarketWatcherStatus() {
+  return window['go']['main']['App']['GetPolymarketWatcherStatus']();
 }
 
 export function GetProfileHistory(arg1, arg2) {
@@ -126,12 +154,28 @@ export function SearchTweets(arg1) {
   return window['go']['main']['App']['SearchTweets'](arg1);
 }
 
+export function SetPolymarketConfig(arg1) {
+  return window['go']['main']['App']['SetPolymarketConfig'](arg1);
+}
+
+export function SetPolymarketSaveFilter(arg1) {
+  return window['go']['main']['App']['SetPolymarketSaveFilter'](arg1);
+}
+
 export function StartAccount(arg1) {
   return window['go']['main']['App']['StartAccount'](arg1);
 }
 
+export function StartPolymarketWatcher() {
+  return window['go']['main']['App']['StartPolymarketWatcher']();
+}
+
 export function StopAccount(arg1) {
   return window['go']['main']['App']['StopAccount'](arg1);
+}
+
+export function StopPolymarketWatcher() {
+  return window['go']['main']['App']['StopPolymarketWatcher']();
 }
 
 export function TestAccountConnection(arg1) {

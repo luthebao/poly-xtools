@@ -29,15 +29,17 @@ type App struct {
 	activityLogger *activity.InMemoryLogger
 
 	// Storage
-	configStore   *storage.YAMLConfigStore
-	metricsStore  *storage.SQLiteMetricsStore
-	replyStore    *storage.SQLiteReplyStore
-	excelExporter *storage.ExcelExporter
+	configStore      *storage.YAMLConfigStore
+	metricsStore     *storage.SQLiteMetricsStore
+	replyStore       *storage.SQLiteReplyStore
+	polymarketStore  *storage.PolymarketStore
+	excelExporter    *storage.ExcelExporter
 
 	// Services
-	accountSvc *services.AccountService
-	searchSvc  *services.SearchService
-	replySvc   *services.ReplyService
+	accountSvc    *services.AccountService
+	searchSvc     *services.SearchService
+	replySvc      *services.ReplyService
+	polymarketSvc *services.PolymarketService
 
 	// Workers
 	workerPool *workers.WorkerPool
@@ -108,6 +110,11 @@ func (a *App) startup(ctx context.Context) {
 		println("Failed to initialize excel exporter:", err.Error())
 	}
 
+	a.polymarketStore, err = storage.NewPolymarketStore(dbPath)
+	if err != nil {
+		println("Failed to initialize polymarket store:", err.Error())
+	}
+
 	// Initialize services
 	clientFactory := twitter.NewClientFactory()
 	llmFactory := llm.NewProviderFactory()
@@ -115,6 +122,7 @@ func (a *App) startup(ctx context.Context) {
 	a.accountSvc = services.NewAccountService(a.configStore, clientFactory, a.eventBus)
 	a.searchSvc = services.NewSearchService(a.accountSvc, a.metricsStore, a.excelExporter, a.eventBus)
 	a.replySvc = services.NewReplyService(a.accountSvc, a.searchSvc, llmFactory, a.replyStore, a.metricsStore, a.eventBus, a.activityLogger)
+	a.polymarketSvc = services.NewPolymarketService(a.polymarketStore, a.eventBus, dbPath)
 
 	// Initialize worker pool
 	a.workerPool = workers.NewWorkerPool(a.searchSvc, a.replySvc, a.configStore, a.eventBus, a.activityLogger)
@@ -124,6 +132,7 @@ func (a *App) startup(ctx context.Context) {
 		a.accountSvc,
 		a.searchSvc,
 		a.replySvc,
+		a.polymarketSvc,
 		a.workerPool,
 		a.configStore,
 		a.metricsStore,
@@ -159,6 +168,9 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	if a.metricsStore != nil {
 		a.metricsStore.Close()
+	}
+	if a.polymarketSvc != nil {
+		a.polymarketSvc.Close()
 	}
 }
 
@@ -337,4 +349,61 @@ func (a *App) CheckForUpdates() (*updater.UpdateInfo, error) {
 // GetAppVersion returns the current application version
 func (a *App) GetAppVersion() string {
 	return a.handlers.GetAppVersion()
+}
+
+// === Polymarket Bindings ===
+
+// StartPolymarketWatcher starts the Polymarket WebSocket watcher
+func (a *App) StartPolymarketWatcher() error {
+	return a.handlers.StartPolymarketWatcher()
+}
+
+// StopPolymarketWatcher stops the Polymarket WebSocket watcher
+func (a *App) StopPolymarketWatcher() {
+	a.handlers.StopPolymarketWatcher()
+}
+
+// GetPolymarketWatcherStatus returns the current watcher status
+func (a *App) GetPolymarketWatcherStatus() domain.PolymarketWatcherStatus {
+	return a.handlers.GetPolymarketWatcherStatus()
+}
+
+// GetPolymarketEvents returns Polymarket events with optional filtering
+func (a *App) GetPolymarketEvents(filter domain.PolymarketEventFilter) ([]domain.PolymarketEvent, error) {
+	return a.handlers.GetPolymarketEvents(filter)
+}
+
+// ClearPolymarketEvents removes all stored Polymarket events
+func (a *App) ClearPolymarketEvents() error {
+	return a.handlers.ClearPolymarketEvents()
+}
+
+// GetDatabaseInfo returns database statistics
+func (a *App) GetDatabaseInfo() (*domain.DatabaseInfo, error) {
+	return a.handlers.GetDatabaseInfo()
+}
+
+// SetPolymarketSaveFilter sets the filter for saving events to database
+func (a *App) SetPolymarketSaveFilter(filter domain.PolymarketEventFilter) {
+	a.handlers.SetPolymarketSaveFilter(filter)
+}
+
+// GetPolymarketSaveFilter returns the current save filter
+func (a *App) GetPolymarketSaveFilter() domain.PolymarketEventFilter {
+	return a.handlers.GetPolymarketSaveFilter()
+}
+
+// GetPolymarketConfig returns the current Polymarket configuration
+func (a *App) GetPolymarketConfig() domain.PolymarketConfig {
+	return a.handlers.GetPolymarketConfig()
+}
+
+// SetPolymarketConfig updates the Polymarket configuration
+func (a *App) SetPolymarketConfig(config domain.PolymarketConfig) {
+	a.handlers.SetPolymarketConfig(config)
+}
+
+// GetPolymarketWallets returns all wallets from the database
+func (a *App) GetPolymarketWallets(limit int) ([]domain.WalletProfile, error) {
+	return a.handlers.GetPolymarketWallets(limit)
 }

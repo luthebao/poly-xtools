@@ -51,6 +51,9 @@ const (
 	// Worker events
 	EventWorkerStatus   = "worker:status"
 	EventWorkerError    = "worker:error"
+
+	// Polymarket events
+	EventPolymarketEvent = "polymarket:event"
 )
 
 // TweetFoundEvent payload
