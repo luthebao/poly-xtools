@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
     Play,
     Square,
@@ -8,16 +8,14 @@ import {
     Activity,
     TrendingUp,
     TrendingDown,
-    ExternalLink,
     AlertTriangle,
     Wallet,
     Loader2,
     Zap,
     Settings,
-    Plus,
-    Trash2,
+    ChevronLeft,
+    ChevronRight,
 } from 'lucide-react';
-import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
@@ -37,7 +35,7 @@ import {
 } from '../components/ui/dialog';
 import { useUIStore } from '../store/uiStore';
 import { usePolymarketStore } from '../store/polymarketStore';
-import { PolymarketEvent, PolymarketConfig } from '../types';
+import { PolymarketEvent, PolymarketConfig, WalletProfile } from '../types';
 import {
     StartPolymarketWatcher,
     StopPolymarketWatcher,
@@ -47,6 +45,7 @@ import {
     GetPolymarketSaveFilter,
     GetPolymarketConfig,
     SetPolymarketConfig,
+    GetPolymarketWallets,
 } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsOff, BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 
@@ -75,6 +74,7 @@ export default function PolymarketWatcher() {
         isLoading,
         setEvents,
         addEvent,
+        updateEvent,
         setStatus,
         setFilter,
         resetFilter,
@@ -85,18 +85,93 @@ export default function PolymarketWatcher() {
     const [showSettings, setShowSettings] = useState(false);
     const [autoRefresh, setAutoRefresh] = useState(true);
     const [config, setConfig] = useState<PolymarketConfig | null>(null);
-    const [rpcUrls, setRpcUrls] = useState<string[]>([]);
-    const [newRpcUrl, setNewRpcUrl] = useState('');
-    const [freshWalletMaxNonce, setFreshWalletMaxNonce] = useState(5);
+    // Fresh wallets from DB for highlighting
+    const [freshWalletAddresses, setFreshWalletAddresses] = useState<Set<string>>(new Set());
+    // Pagination
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize] = useState(50);
+    // Local table filters (not affecting DB save)
+    const [tableShowFreshOnly, setTableShowFreshOnly] = useState(false);
+    const [tableMinValue, setTableMinValue] = useState<number | ''>('');
+    const [tableMaxValue, setTableMaxValue] = useState<number | ''>('');
+    // Bet count thresholds
+    const [freshInsiderMaxBets, setFreshInsiderMaxBets] = useState(3);
+    const [freshWalletMaxBets, setFreshWalletMaxBets] = useState(10);
+    const [freshNewbieMaxBets, setFreshNewbieMaxBets] = useState(20);
+    const [customFreshMaxBets, setCustomFreshMaxBets] = useState(0);
+
+    // Helper to get notional value
+    const getEventNotional = (event: PolymarketEvent): number => {
+        if (!event.price || !event.size) return 0;
+        const price = parseFloat(event.price);
+        const size = parseFloat(event.size);
+        if (isNaN(price) || isNaN(size)) return 0;
+        return price * size;
+    };
+
+    // Helper to check if wallet is fresh (from DB)
+    const isWalletFresh = useCallback((walletAddress: string | undefined): boolean => {
+        if (!walletAddress) return false;
+        return freshWalletAddresses.has(walletAddress.toLowerCase());
+    }, [freshWalletAddresses]);
+
+    // Filtered events based on local table filters
+    const filteredEvents = useMemo(() => {
+        return events.filter(event => {
+            // Fresh wallet filter - check both event flag and DB
+            if (tableShowFreshOnly) {
+                const isFresh = event.isFreshWallet === true || isWalletFresh(event.walletAddress);
+                if (!isFresh) return false;
+            }
+            // Min value filter
+            const notional = getEventNotional(event);
+            if (tableMinValue !== '' && notional < tableMinValue) return false;
+            // Max value filter
+            if (tableMaxValue !== '' && notional > tableMaxValue) return false;
+            return true;
+        });
+    }, [events, tableShowFreshOnly, tableMinValue, tableMaxValue, isWalletFresh]);
+
+    // Paginated events
+    const paginatedEvents = useMemo(() => {
+        const start = (currentPage - 1) * pageSize;
+        const end = start + pageSize;
+        return filteredEvents.slice(start, end);
+    }, [filteredEvents, currentPage, pageSize]);
+
+    const totalPages = Math.ceil(filteredEvents.length / pageSize);
+
+    // Reset page when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [tableShowFreshOnly, tableMinValue, tableMaxValue]);
 
     const loadConfig = useCallback(async () => {
         try {
             const cfg = await GetPolymarketConfig();
             setConfig(cfg);
-            setRpcUrls(cfg.polygonRpcUrls || []);
-            setFreshWalletMaxNonce(cfg.freshWalletMaxNonce || 5);
+            setFreshInsiderMaxBets(cfg.freshInsiderMaxBets || 3);
+            setFreshWalletMaxBets(cfg.freshWalletMaxBets || 10);
+            setFreshNewbieMaxBets(cfg.freshNewbieMaxBets || 20);
+            setCustomFreshMaxBets(cfg.customFreshMaxBets || 0);
         } catch (err) {
             console.error('Failed to load config:', err);
+        }
+    }, []);
+
+    // Load fresh wallets from DB for highlighting
+    const loadFreshWallets = useCallback(async () => {
+        try {
+            const wallets = await GetPolymarketWallets(10000);
+            const freshSet = new Set<string>();
+            (wallets || []).forEach((w: WalletProfile) => {
+                if (w.isFresh) {
+                    freshSet.add(w.address.toLowerCase());
+                }
+            });
+            setFreshWalletAddresses(freshSet);
+        } catch (err) {
+            console.error('Failed to load fresh wallets:', err);
         }
     }, []);
 
@@ -125,8 +200,9 @@ export default function PolymarketWatcher() {
     const loadEvents = useCallback(async () => {
         try {
             setIsLoading(true);
-            const evts = await GetPolymarketEvents(filter);
+            const evts = await GetPolymarketEvents({ ...filter, limit: 1000 }); // Load more events for pagination
             setEvents(evts || []);
+            setCurrentPage(1); // Reset to first page on load
         } catch (err: any) {
             const errorMsg = typeof err === 'string' ? err : err?.message || 'Failed to load events';
             showToast(errorMsg, 'error');
@@ -139,6 +215,7 @@ export default function PolymarketWatcher() {
     const autoRefreshRef = useRef(autoRefresh);
     const filterMinSizeRef = useRef(filter.minSize);
     const addEventRef = useRef(addEvent);
+    const updateEventRef = useRef(updateEvent);
     const showToastRef = useRef(showToast);
 
     // Keep refs in sync
@@ -146,8 +223,9 @@ export default function PolymarketWatcher() {
         autoRefreshRef.current = autoRefresh;
         filterMinSizeRef.current = filter.minSize;
         addEventRef.current = addEvent;
+        updateEventRef.current = updateEvent;
         showToastRef.current = showToast;
-    }, [autoRefresh, filter.minSize, addEvent, showToast]);
+    }, [autoRefresh, filter.minSize, addEvent, updateEvent, showToast]);
 
     // Initial load - runs once on mount
     useEffect(() => {
@@ -155,6 +233,7 @@ export default function PolymarketWatcher() {
         loadEvents();
         loadConfig();
         loadSavedFilter();
+        loadFreshWallets();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -169,9 +248,15 @@ export default function PolymarketWatcher() {
         };
 
         const handleFreshWallet = (event: PolymarketEvent) => {
+            // Update the event in the list with fresh wallet data
+            updateEventRef.current(event);
+
+            // Show toast notification for high confidence fresh wallets
             if (event.riskScore && event.riskScore >= 0.7) {
+                const freshnessLabel = event.walletProfile?.freshnessLevel || 'fresh';
+                const betCount = event.walletProfile?.betCount ?? 0;
                 showToastRef.current(
-                    `Fresh Wallet Alert: ${shortenAddress(event.walletAddress || '')} made a $${formatNotionalValue(event)} trade`,
+                    `🚨 Fresh Wallet (${freshnessLabel}, ${betCount} bets): ${shortenAddress(event.walletAddress || '')} - $${formatNotionalValue(event)}`,
                     'warning'
                 );
             }
@@ -191,6 +276,12 @@ export default function PolymarketWatcher() {
         const statusInterval = setInterval(loadStatus, 3000);
         return () => clearInterval(statusInterval);
     }, [loadStatus]);
+
+    // Fresh wallets polling - refresh every 10 seconds
+    useEffect(() => {
+        const walletsInterval = setInterval(loadFreshWallets, 10000);
+        return () => clearInterval(walletsInterval);
+    }, [loadFreshWallets]);
 
     const handleStart = async () => {
         try {
@@ -235,24 +326,15 @@ export default function PolymarketWatcher() {
         loadEvents();
     };
 
-    const handleAddRpcUrl = () => {
-        if (newRpcUrl && !rpcUrls.includes(newRpcUrl)) {
-            setRpcUrls([...rpcUrls, newRpcUrl]);
-            setNewRpcUrl('');
-        }
-    };
-
-    const handleRemoveRpcUrl = (url: string) => {
-        setRpcUrls(rpcUrls.filter(u => u !== url));
-    };
-
     const handleSaveSettings = async () => {
         if (!config) return;
         try {
             const updatedConfig: PolymarketConfig = {
                 ...config,
-                polygonRpcUrls: rpcUrls,
-                freshWalletMaxNonce: freshWalletMaxNonce,
+                freshInsiderMaxBets,
+                freshWalletMaxBets,
+                freshNewbieMaxBets,
+                customFreshMaxBets,
             };
             await SetPolymarketConfig(updatedConfig);
             setConfig(updatedConfig);
@@ -370,9 +452,78 @@ export default function PolymarketWatcher() {
             {/* Events List - Flex 1 to fill remaining height */}
             <div className="flex-1 min-h-0 rounded-lg border border-border bg-card/50 overflow-hidden flex flex-col">
                 <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-                    <span className="font-medium">Events ({events.length})</span>
+                    <span className="font-medium">Events ({filteredEvents.length}{filteredEvents.length !== events.length ? ` / ${events.length}` : ''})</span>
+                    {/* Pagination Controls */}
+                    {totalPages > 1 && (
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                disabled={currentPage === 1}
+                            >
+                                <ChevronLeft size={16} />
+                            </Button>
+                            <span className="text-sm text-muted-foreground">
+                                Page {currentPage} of {totalPages}
+                            </span>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                disabled={currentPage === totalPages}
+                            >
+                                <ChevronRight size={16} />
+                            </Button>
+                        </div>
+                    )}
                 </div>
-                <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                {/* Table Filter Bar */}
+                <div className="px-4 py-2 border-b border-border bg-muted/30 flex items-center gap-4 flex-wrap">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={tableShowFreshOnly}
+                            onChange={(e) => setTableShowFreshOnly(e.target.checked)}
+                            className="rounded border-border"
+                        />
+                        <AlertTriangle size={14} className="text-orange-500" />
+                        Fresh Wallets Only
+                    </label>
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground">Value:</span>
+                        <Input
+                            type="number"
+                            placeholder="Min"
+                            className="w-24 h-8"
+                            value={tableMinValue}
+                            onChange={(e) => setTableMinValue(e.target.value ? parseFloat(e.target.value) : '')}
+                        />
+                        <span className="text-muted-foreground">-</span>
+                        <Input
+                            type="number"
+                            placeholder="Max"
+                            className="w-24 h-8"
+                            value={tableMaxValue}
+                            onChange={(e) => setTableMaxValue(e.target.value ? parseFloat(e.target.value) : '')}
+                        />
+                    </div>
+                    {(tableShowFreshOnly || tableMinValue !== '' || tableMaxValue !== '') && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                                setTableShowFreshOnly(false);
+                                setTableMinValue('');
+                                setTableMaxValue('');
+                            }}
+                        >
+                            <X size={14} />
+                            Clear
+                        </Button>
+                    )}
+                </div>
+                <div className="flex-1 overflow-y-auto p-2">
                     {events.length === 0 ? (
                         <div className="text-center py-8 text-muted-foreground">
                             {status.isRunning
@@ -380,11 +531,61 @@ export default function PolymarketWatcher() {
                                 : 'Start the watcher to receive events'}
                         </div>
                     ) : (
-                        events.map((event) => (
-                            <EventCard key={event.id || `${event.timestamp}-${event.tradeId}`} event={event} />
-                        ))
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                            {paginatedEvents.map((event) => (
+                                <EventCard
+                                    key={event.id || `${event.timestamp}-${event.tradeId}`}
+                                    event={event}
+                                    isWalletFreshFromDB={isWalletFresh(event.walletAddress)}
+                                />
+                            ))}
+                        </div>
                     )}
                 </div>
+                {/* Bottom Pagination */}
+                {totalPages > 1 && (
+                    <div className="px-4 py-2 border-t border-border flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">
+                            Showing {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, filteredEvents.length)} of {filteredEvents.length}
+                        </span>
+                        <div className="flex items-center gap-1">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setCurrentPage(1)}
+                                disabled={currentPage === 1}
+                            >
+                                First
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                disabled={currentPage === 1}
+                            >
+                                <ChevronLeft size={16} />
+                                Prev
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                disabled={currentPage === totalPages}
+                            >
+                                Next
+                                <ChevronRight size={16} />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setCurrentPage(totalPages)}
+                                disabled={currentPage === totalPages}
+                            >
+                                Last
+                            </Button>
+                        </div>
+                    </div>
+                )}
             </div>
 
             {/* Filter Modal */}
@@ -447,7 +648,7 @@ export default function PolymarketWatcher() {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Min Price</label>
                                 <Input
@@ -480,17 +681,6 @@ export default function PolymarketWatcher() {
                                     onChange={(e) => setFilter({ minSize: parseFloat(e.target.value) || 100 })}
                                 />
                             </div>
-
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Limit</label>
-                                <Input
-                                    type="number"
-                                    step="10"
-                                    placeholder="100"
-                                    value={filter.limit || 100}
-                                    onChange={(e) => setFilter({ limit: parseInt(e.target.value) || 100 })}
-                                />
-                            </div>
                         </div>
                     </div>
 
@@ -506,122 +696,104 @@ export default function PolymarketWatcher() {
                 </DialogContent>
             </Dialog>
 
-            {/* RPC Settings Modal */}
+            {/* Settings Modal */}
             <Dialog open={showSettings} onOpenChange={setShowSettings}>
                 <DialogContent className="max-w-xl">
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <Settings size={20} />
-                            Watcher Settings
+                            Fresh Wallet Detection Settings
                         </DialogTitle>
                     </DialogHeader>
 
                     <div className="space-y-4 py-4">
-                        {/* Fresh Wallet Settings */}
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium flex items-center gap-2">
-                                <Wallet size={16} className="text-orange-500" />
-                                Fresh Wallet Detection
-                            </label>
-                            <div className="space-y-2">
-                                <label className="text-sm text-muted-foreground">
-                                    Max Nonce Threshold
-                                </label>
-                                <p className="text-xs text-muted-foreground">
-                                    Wallets with transaction count (nonce) equal to or below this value are considered "fresh". Lower values = stricter detection.
-                                </p>
-                                <div className="flex items-center gap-3">
+                        {/* Fresh Wallet Detection Info */}
+                        <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/30">
+                            <div className="flex items-center gap-2 text-orange-500 font-medium mb-2">
+                                <Wallet size={16} />
+                                Bet Count Based Detection
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                Fresh wallet detection uses the Polymarket Data API to count total bets made by a wallet.
+                                Wallets with fewer bets are more likely to be fresh insiders or new accounts.
+                            </p>
+                        </div>
+
+                        {/* Threshold Settings */}
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium flex items-center gap-2">
+                                        🚨 Fresh Insider (0-N bets)
+                                    </label>
+                                    <p className="text-xs text-muted-foreground">
+                                        Highest confidence - likely insider trading
+                                    </p>
                                     <Input
                                         type="number"
                                         min={0}
                                         max={100}
-                                        value={freshWalletMaxNonce}
-                                        onChange={(e) => setFreshWalletMaxNonce(parseInt(e.target.value) || 0)}
+                                        value={freshInsiderMaxBets}
+                                        onChange={(e) => setFreshInsiderMaxBets(parseInt(e.target.value) || 0)}
                                         className="w-24"
                                     />
-                                    <div className="text-xs text-muted-foreground">
-                                        <span className="font-medium">Common values: </span>
-                                        <button
-                                            type="button"
-                                            onClick={() => setFreshWalletMaxNonce(1)}
-                                            className="text-primary hover:underline"
-                                        >
-                                            1 (brand new)
-                                        </button>
-                                        {' | '}
-                                        <button
-                                            type="button"
-                                            onClick={() => setFreshWalletMaxNonce(3)}
-                                            className="text-primary hover:underline"
-                                        >
-                                            3
-                                        </button>
-                                        {' | '}
-                                        <button
-                                            type="button"
-                                            onClick={() => setFreshWalletMaxNonce(5)}
-                                            className="text-primary hover:underline"
-                                        >
-                                            5 (default)
-                                        </button>
-                                        {' | '}
-                                        <button
-                                            type="button"
-                                            onClick={() => setFreshWalletMaxNonce(10)}
-                                            className="text-primary hover:underline"
-                                        >
-                                            10
-                                        </button>
-                                    </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium flex items-center gap-2">
+                                        🔥 Fresh Wallet (0-N bets)
+                                    </label>
+                                    <p className="text-xs text-muted-foreground">
+                                        High confidence - very new wallet
+                                    </p>
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={freshWalletMaxBets}
+                                        onChange={(e) => setFreshWalletMaxBets(parseInt(e.target.value) || 0)}
+                                        className="w-24"
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium flex items-center gap-2">
+                                        ⚡ Fresh Newbie (0-N bets)
+                                    </label>
+                                    <p className="text-xs text-muted-foreground">
+                                        Medium confidence - new user
+                                    </p>
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={freshNewbieMaxBets}
+                                        onChange={(e) => setFreshNewbieMaxBets(parseInt(e.target.value) || 0)}
+                                        className="w-24"
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium flex items-center gap-2">
+                                        ✨ Custom Threshold (0 = disabled)
+                                    </label>
+                                    <p className="text-xs text-muted-foreground">
+                                        Override: any wallet up to N bets
+                                    </p>
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        max={1000}
+                                        value={customFreshMaxBets}
+                                        onChange={(e) => setCustomFreshMaxBets(parseInt(e.target.value) || 0)}
+                                        className="w-24"
+                                    />
                                 </div>
                             </div>
-                        </div>
 
-                        {/* Polygon RPC URLs */}
-                        <div className="space-y-2 pt-4 border-t border-border">
-                            <label className="text-sm font-medium">Polygon RPC URLs (with fallback)</label>
-                            <p className="text-xs text-muted-foreground">
-                                Add multiple RPC URLs for wallet analysis. The system will automatically fall back to the next URL if one fails.
-                            </p>
-
-                            {/* Current RPC URLs */}
-                            <div className="space-y-2 max-h-48 overflow-y-auto">
-                                {rpcUrls.map((url, idx) => (
-                                    <div key={idx} className="flex items-center gap-2">
-                                        <Input
-                                            value={url}
-                                            readOnly
-                                            className="flex-1 font-mono text-xs"
-                                        />
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => handleRemoveRpcUrl(url)}
-                                        >
-                                            <Trash2 size={14} className="text-destructive" />
-                                        </Button>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* Add new URL */}
-                            <div className="flex items-center gap-2">
-                                <Input
-                                    placeholder="https://polygon-rpc.com"
-                                    value={newRpcUrl}
-                                    onChange={(e) => setNewRpcUrl(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleAddRpcUrl()}
-                                    className="flex-1 font-mono text-xs"
-                                />
-                                <Button
-                                    variant="secondary"
-                                    size="sm"
-                                    onClick={handleAddRpcUrl}
-                                    disabled={!newRpcUrl}
-                                >
-                                    <Plus size={14} />
-                                    Add
-                                </Button>
+                            <div className="text-xs text-muted-foreground pt-2 border-t border-border">
+                                <strong>How it works:</strong> When a trade is detected, the system queries the Polymarket API
+                                to count the wallet's total bets. If the count is within a threshold, it's flagged as fresh.
                             </div>
                         </div>
                     </div>
@@ -630,8 +802,10 @@ export default function PolymarketWatcher() {
                         <Button
                             variant="ghost"
                             onClick={() => {
-                                setRpcUrls(config?.polygonRpcUrls || []);
-                                setFreshWalletMaxNonce(config?.freshWalletMaxNonce || 5);
+                                setFreshInsiderMaxBets(config?.freshInsiderMaxBets || 3);
+                                setFreshWalletMaxBets(config?.freshWalletMaxBets || 10);
+                                setFreshNewbieMaxBets(config?.freshNewbieMaxBets || 20);
+                                setCustomFreshMaxBets(config?.customFreshMaxBets || 0);
                                 setShowSettings(false);
                             }}
                         >
@@ -649,6 +823,7 @@ export default function PolymarketWatcher() {
 
 interface EventCardProps {
     event: PolymarketEvent;
+    isWalletFreshFromDB: boolean;
 }
 
 function shortenAddress(addr: string): string {
@@ -668,51 +843,9 @@ function formatNotionalValue(event: PolymarketEvent): string {
     return getNotionalValue(event).toFixed(2);
 }
 
-function EventCard({ event }: EventCardProps) {
-    const getSideIcon = (side?: string) => {
-        if (side === 'BUY') return <TrendingUp size={14} className="text-green-500" />;
-        if (side === 'SELL') return <TrendingDown size={14} className="text-red-500" />;
-        return null;
-    };
-
-    const formatPrice = (price?: string) => {
-        if (!price) return '-';
-        const num = parseFloat(price);
-        if (isNaN(num)) return price;
-        return `$${num.toFixed(4)}`;
-    };
-
-    const formatSize = (size?: string) => {
-        if (!size) return '-';
-        const num = parseFloat(size);
-        if (isNaN(num)) return size;
-        return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
-    };
-
-    const getRiskBadge = () => {
-        if (!event.isFreshWallet) return null;
-
-        const score = event.riskScore || 0;
-        let variant = 'outline';
-        let label = 'Low Risk';
-
-        if (score >= 0.85) {
-            variant = 'destructive';
-            label = 'Very High Risk';
-        } else if (score >= 0.7) {
-            variant = 'default';
-            label = 'High Risk';
-        } else if (score >= 0.5) {
-            variant = 'secondary';
-            label = 'Medium Risk';
-        }
-
-        return (
-            <Badge variant={variant as any} className="flex items-center gap-1">
-                <AlertTriangle size={12} />
-                {label} ({(score * 100).toFixed(0)}%)
-            </Badge>
-        );
+function EventCard({ event, isWalletFreshFromDB }: EventCardProps) {
+    const openUrl = (url: string) => {
+        BrowserOpenURL(url);
     };
 
     const getTraderProfileUrl = () => {
@@ -722,210 +855,61 @@ function EventCard({ event }: EventCardProps) {
         return null;
     };
 
-    const openUrl = (url: string) => {
-        BrowserOpenURL(url);
-    };
+    // Highlight if either the event is marked fresh OR the wallet is fresh in DB
+    const isFresh = event.isFreshWallet === true || isWalletFreshFromDB;
 
     return (
         <div
-            className={`p-3 rounded-lg border ${
-                event.isFreshWallet
+            className={`p-2 rounded-lg border text-xs ${
+                isFresh
                     ? 'border-orange-500 bg-orange-500/10'
                     : 'border-border bg-card/50'
             }`}
         >
-            {/* Fresh Wallet Banner */}
-            {event.isFreshWallet && (
-                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-orange-500/30">
-                    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500 text-white text-sm font-medium">
-                        <AlertTriangle size={14} />
-                        FRESH WALLET DETECTED
-                    </div>
-                    {getRiskBadge()}
-                    {event.walletProfile && (
-                        <span className="text-xs text-orange-500">
-                            Nonce: {event.walletProfile.nonce}
-                        </span>
+            {/* Header: Side + Value + Time */}
+            <div className="flex items-center justify-between gap-1 mb-1">
+                <div className="flex items-center gap-1">
+                    {event.side === 'BUY' ? (
+                        <TrendingUp size={12} className="text-green-500" />
+                    ) : (
+                        <TrendingDown size={12} className="text-red-500" />
                     )}
+                    <span className={`font-medium ${event.side === 'BUY' ? 'text-green-500' : 'text-red-500'}`}>
+                        ${formatNotionalValue(event)}
+                    </span>
+                </div>
+                <span className="text-muted-foreground">
+                    {new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+            </div>
+
+            {/* Fresh Wallet Badge */}
+            {isFresh && (
+                <div className="flex items-center gap-1 mb-1">
+                    <AlertTriangle size={10} className="text-orange-500" />
+                    <span className="text-orange-500 font-medium">
+                        {event.walletProfile?.betCount ?? '?'} trades
+                        {event.walletProfile?.joinDate && ` · ${event.walletProfile.joinDate}`}
+                    </span>
                 </div>
             )}
 
-            <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <Badge
-                        variant="outline"
-                        className={EVENT_TYPE_COLORS[event.eventType] || 'bg-secondary'}
-                    >
-                        {EVENT_TYPE_LABELS[event.eventType] || event.eventType}
-                    </Badge>
-
-                    {event.side && (
-                        <div className="flex items-center gap-1">
-                            {getSideIcon(event.side)}
-                            <span className={event.side === 'BUY' ? 'text-green-500' : 'text-red-500'}>
-                                {event.side}
-                            </span>
-                        </div>
-                    )}
-
-                    {event.outcome && (
-                        <span className="text-sm font-medium">{event.outcome}</span>
-                    )}
-
-                    {event.price && (
-                        <span className="font-mono text-sm">{formatPrice(event.price)}</span>
-                    )}
-
-                    {event.size && (
-                        <span className="text-sm text-muted-foreground">
-                            Size: {formatSize(event.size)}
-                        </span>
-                    )}
-
-                    {(event.marketName || event.eventTitle || event.marketSlug) && (
-                        <span className="text-sm text-muted-foreground truncate max-w-[200px]">
-                            {event.marketName || event.eventTitle || event.marketSlug}
-                        </span>
-                    )}
-                </div>
-
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span>{new Date(event.timestamp).toLocaleTimeString()}</span>
-                </div>
+            {/* Market Name */}
+            <div className="text-muted-foreground truncate mb-1" title={event.eventTitle || event.marketName}>
+                {event.outcome && <span className="font-medium text-foreground">{event.outcome}: </span>}
+                {event.eventTitle || event.marketName || event.marketSlug || '-'}
             </div>
 
-            {/* Always show details */}
-            <div className="mt-3 pt-3 border-t border-border space-y-2 text-sm">
-                <div className="grid grid-cols-2 gap-2">
-                    {event.walletAddress && (
-                        <div>
-                            <span className="text-muted-foreground">Wallet: </span>
-                            <button
-                                onClick={() => openUrl(getTraderProfileUrl()!)}
-                                className="font-mono text-primary hover:underline cursor-pointer"
-                            >
-                                {shortenAddress(event.walletAddress)}
-                            </button>
-                        </div>
-                    )}
-                    {event.traderName && (
-                        <div>
-                            <span className="text-muted-foreground">Trader: </span>
-                            {event.walletAddress ? (
-                                <button
-                                    onClick={() => openUrl(getTraderProfileUrl()!)}
-                                    className="text-primary hover:underline cursor-pointer"
-                                >
-                                    {event.traderName}
-                                </button>
-                            ) : (
-                                <span>{event.traderName}</span>
-                            )}
-                        </div>
-                    )}
-                    <div>
-                        <span className="text-muted-foreground">Asset ID: </span>
-                        <span className="font-mono">{event.assetId ? shortenAddress(event.assetId) : '-'}</span>
-                    </div>
-                    <div>
-                        <span className="text-muted-foreground">Market: </span>
-                        <span>{event.marketSlug || event.eventSlug || '-'}</span>
-                    </div>
-                    {event.bestBid && (
-                        <div>
-                            <span className="text-muted-foreground">Best Bid: </span>
-                            <span className="font-mono text-green-500">{formatPrice(event.bestBid)}</span>
-                        </div>
-                    )}
-                    {event.bestAsk && (
-                        <div>
-                            <span className="text-muted-foreground">Best Ask: </span>
-                            <span className="font-mono text-red-500">{formatPrice(event.bestAsk)}</span>
-                        </div>
-                    )}
-                    {event.price && event.size && (
-                        <div>
-                            <span className="text-muted-foreground">Notional Value: </span>
-                            <span className="font-mono font-medium">${formatNotionalValue(event)}</span>
-                        </div>
-                    )}
-                    {event.feeRateBps !== undefined && event.feeRateBps > 0 && (
-                        <div>
-                            <span className="text-muted-foreground">Fee Rate: </span>
-                            <span>{event.feeRateBps} bps</span>
-                        </div>
-                    )}
-                </div>
-
-                {/* Fresh Wallet Info */}
-                {event.isFreshWallet && event.walletProfile && (
-                    <div className="p-2 rounded bg-orange-500/10 border border-orange-500/30">
-                        <div className="text-orange-500 font-medium mb-1 flex items-center gap-2">
-                            <AlertTriangle size={14} />
-                            Fresh Wallet Detection
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                            <div>
-                                <span className="text-muted-foreground">Wallet Nonce: </span>
-                                <span className="font-mono">{event.walletProfile.nonce}</span>
-                            </div>
-                            <div>
-                                <span className="text-muted-foreground">Risk Score: </span>
-                                <span className="font-mono">{((event.riskScore || 0) * 100).toFixed(0)}%</span>
-                            </div>
-                            {event.riskSignals && event.riskSignals.length > 0 && (
-                                <div className="col-span-2">
-                                    <span className="text-muted-foreground">Signals: </span>
-                                    <span>{event.riskSignals.join(', ')}</span>
-                                </div>
-                            )}
-                            {event.freshWalletSignal && (
-                                <div className="col-span-2">
-                                    <span className="text-muted-foreground">Factors: </span>
-                                    <span>
-                                        {Object.entries(event.freshWalletSignal.factors || {})
-                                            .map(([k, v]) => `${k}: ${(v * 100).toFixed(0)}%`)
-                                            .join(', ')}
-                                    </span>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
-
-                {/* Links */}
-                <div className="flex items-center gap-4">
-                    {event.walletAddress && (
-                        <button
-                            onClick={() => openUrl(getTraderProfileUrl()!)}
-                            className="inline-flex items-center gap-1 text-primary hover:underline cursor-pointer"
-                        >
-                            <Wallet size={14} />
-                            Trader Profile
-                        </button>
-                    )}
-                    {event.marketLink && (
-                        <button
-                            onClick={() => openUrl(event.marketLink!)}
-                            className="inline-flex items-center gap-1 text-primary hover:underline cursor-pointer"
-                        >
-                            <ExternalLink size={14} />
-                            View Market
-                        </button>
-                    )}
-                </div>
-
-                {event.rawData && (
-                    <details className="pt-2">
-                        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
-                            Raw Data
-                        </summary>
-                        <pre className="mt-2 p-2 bg-secondary rounded text-xs overflow-x-auto">
-                            {JSON.stringify(JSON.parse(event.rawData), null, 2)}
-                        </pre>
-                    </details>
-                )}
-            </div>
+            {/* Wallet Link */}
+            {event.walletAddress && (
+                <button
+                    onClick={() => openUrl(getTraderProfileUrl()!)}
+                    className="text-primary hover:underline font-mono truncate block"
+                    title={event.walletAddress}
+                >
+                    {shortenAddress(event.walletAddress)}
+                </button>
+            )}
         </div>
     );
 }

@@ -53,6 +53,8 @@ export function GetPolymarketEvents(arg1:domain.PolymarketEventFilter):Promise<A
 
 export function GetPolymarketSaveFilter():Promise<domain.PolymarketEventFilter>;
 
+export function GetPolymarketWallets(arg1:number):Promise<Array<domain.WalletProfile>>;
+
 export function GetPolymarketWatcherStatus():Promise<domain.PolymarketWatcherStatus>;
 
 export function GetProfileHistory(arg1:string,arg2:number):Promise<Array<domain.ProfileSnapshot>>;

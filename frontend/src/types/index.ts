@@ -200,19 +200,25 @@ export interface UpdateInfo {
 // Polymarket types
 export type PolymarketEventType = string;
 export type OrderSide = string;
+export type FreshnessLevel = string; // "" | "insider" | "fresh" | "newbie" | "fresher"
 
 export interface WalletProfile {
     address: string;
-    nonce: number;
-    firstSeen?: string;
-    ageHours?: number;
+    betCount: number;
+    joinDate?: string; // When the wallet joined Polymarket (e.g., "Dec 2025")
+    freshnessLevel: FreshnessLevel;
     isFresh: boolean;
-    totalTxCount: number;
-    balanceMatic?: string;
-    balanceUsdc?: string;
     analyzedAt: string;
     freshThreshold: number;
-    isBrandNew: boolean;
+    // Deprecated but kept for backward compatibility
+    nonce?: number;
+    totalTxCount?: number;
+    isBrandNew?: boolean;
+    // Optional fields
+    firstSeen?: string;
+    ageHours?: number;
+    balanceMatic?: string;
+    balanceUsdc?: string;
 }
 
 export interface FreshWalletSignal {
@@ -292,10 +298,16 @@ export interface DatabaseInfo {
 
 export interface PolymarketConfig {
     enabled: boolean;
+    minTradeSize: number;
+    alertThreshold: number;
+    // Fresh wallet detection thresholds (bet count based)
+    freshInsiderMaxBets: number;
+    freshWalletMaxBets: number;
+    freshNewbieMaxBets: number;
+    customFreshMaxBets: number;
+    // Deprecated: RPC-based detection is no longer used
     polygonRpcUrl?: string;
     polygonRpcUrls?: string[];
-    minTradeSize: number;
-    freshWalletMaxNonce: number;
-    freshWalletMaxAge: number;
-    alertThreshold: number;
+    freshWalletMaxNonce?: number;
+    freshWalletMaxAge?: number;
 }

@@ -175,19 +175,55 @@ Components are placed in `frontend/src/components/ui/` and re-exported from `ind
 
 ## Polymarket Watcher
 
-The Polymarket watcher monitors live trades via WebSocket (`wss://ws-live-data.polymarket.com`) and detects fresh wallets using Polygon RPC.
+The Polymarket watcher monitors live trades via WebSocket (`wss://ws-live-data.polymarket.com`) and detects fresh wallets using the Polymarket Data API.
 
 **Key components:**
+
 - `internal/adapters/polymarket/websocket.go` - WebSocket connection with auto-reconnect
-- `internal/adapters/polymarket/wallet_analyzer.go` - Checks wallet nonce via Polygon RPC (multiple URLs with fallback)
+- `internal/adapters/polymarket/wallet_analyzer.go` - Fetches wallet bet count via Polymarket Data API (`/trades?user=...`)
 - `internal/services/polymarket.go` - Orchestrates watching, filtering, and storage
 - `internal/adapters/storage/polymarket_store.go` - SQLite storage for events and settings
 
+**Fresh wallet detection levels (based on total bet count):**
+
+- `FreshnessInsider` (0-3 bets): Likely insider, highest confidence
+- `FreshnessWallet` (0-10 bets): Fresh wallet
+- `FreshnessNewbie` (0-20 bets): New user
+- `FreshnessCustom`: Uses custom threshold (`customFreshMaxBets` config)
+
 **Real-time event flow:**
+
 1. WebSocket receives trade → `onEvent` callback
 2. Event checked against save filter (min size, side, market name, etc.)
-3. If fresh wallet filters active, synchronous wallet analysis before saving
-4. Event saved to SQLite and emitted via `EventBus` to frontend
+3. Wallet address saved to `polymarket_wallets` table for background analysis
+4. Event saved to `polymarket_events` table and emitted via `EventBus` to frontend
 5. Frontend receives via `EventsOn('polymarket:event', handler)`
 
-**Settings persistence:** Filter and RPC config stored in `polymarket_settings` table, loaded on service startup.
+**Background wallet analysis:**
+
+- Worker runs every 10 seconds, processes 10 wallets per batch
+- Only re-fetches wallets with `bet_count <= 50` (fresh candidates)
+- Uses Polymarket Profile API: `https://polymarket.com/api/profile/stats?proxyAddress=...`
+- Returns `{trades, largestWin, views, joinDate}`
+
+**Settings persistence:** Filter and bet count thresholds stored in `polymarket_settings` table, loaded on service startup.
+
+## Frontend Pages
+
+- **Polymarket Live** (`/polymarket`): Real-time trade feed with fresh wallet highlighting
+- **Wallets** (`/polymarket/wallets`): All tracked wallets with sorting (click column headers) and filtering
+
+## Wails Event Subscriptions
+
+Frontend subscribes to backend events via `EventsOn()`:
+
+```typescript
+import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
+
+useEffect(() => {
+    EventsOn('polymarket:event', (event) => { /* handle */ });
+    return () => EventsOff('polymarket:event');
+}, []);
+```
+
+Common events: `polymarket:event`, `polymarket:fresh_wallet`, `polymarket:fresh_wallet_detected`

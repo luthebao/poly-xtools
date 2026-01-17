@@ -541,12 +541,16 @@ export namespace domain {
 	
 	export class PolymarketConfig {
 	    enabled: boolean;
+	    minTradeSize: number;
+	    alertThreshold: number;
+	    freshInsiderMaxBets: number;
+	    freshWalletMaxBets: number;
+	    freshNewbieMaxBets: number;
+	    customFreshMaxBets: number;
 	    polygonRpcUrl?: string;
 	    polygonRpcUrls?: string[];
-	    minTradeSize: number;
-	    freshWalletMaxNonce: number;
-	    freshWalletMaxAge: number;
-	    alertThreshold: number;
+	    freshWalletMaxNonce?: number;
+	    freshWalletMaxAge?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new PolymarketConfig(source);
@@ -555,28 +559,35 @@ export namespace domain {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enabled = source["enabled"];
+	        this.minTradeSize = source["minTradeSize"];
+	        this.alertThreshold = source["alertThreshold"];
+	        this.freshInsiderMaxBets = source["freshInsiderMaxBets"];
+	        this.freshWalletMaxBets = source["freshWalletMaxBets"];
+	        this.freshNewbieMaxBets = source["freshNewbieMaxBets"];
+	        this.customFreshMaxBets = source["customFreshMaxBets"];
 	        this.polygonRpcUrl = source["polygonRpcUrl"];
 	        this.polygonRpcUrls = source["polygonRpcUrls"];
-	        this.minTradeSize = source["minTradeSize"];
 	        this.freshWalletMaxNonce = source["freshWalletMaxNonce"];
 	        this.freshWalletMaxAge = source["freshWalletMaxAge"];
-	        this.alertThreshold = source["alertThreshold"];
 	    }
 	}
 	export class WalletProfile {
 	    address: string;
-	    nonce: number;
-	    // Go type: time
-	    firstSeen?: any;
-	    ageHours?: number;
+	    betCount: number;
+	    joinDate: string;
+	    freshnessLevel: string;
 	    isFresh: boolean;
-	    totalTxCount: number;
-	    balanceMatic?: string;
-	    balanceUsdc?: string;
 	    // Go type: time
 	    analyzedAt: any;
 	    freshThreshold: number;
-	    isBrandNew: boolean;
+	    nonce?: number;
+	    totalTxCount?: number;
+	    isBrandNew?: boolean;
+	    // Go type: time
+	    firstSeen?: any;
+	    ageHours?: number;
+	    balanceMatic?: string;
+	    balanceUsdc?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new WalletProfile(source);
@@ -585,16 +596,19 @@ export namespace domain {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.address = source["address"];
-	        this.nonce = source["nonce"];
-	        this.firstSeen = this.convertValues(source["firstSeen"], null);
-	        this.ageHours = source["ageHours"];
+	        this.betCount = source["betCount"];
+	        this.joinDate = source["joinDate"];
+	        this.freshnessLevel = source["freshnessLevel"];
 	        this.isFresh = source["isFresh"];
-	        this.totalTxCount = source["totalTxCount"];
-	        this.balanceMatic = source["balanceMatic"];
-	        this.balanceUsdc = source["balanceUsdc"];
 	        this.analyzedAt = this.convertValues(source["analyzedAt"], null);
 	        this.freshThreshold = source["freshThreshold"];
+	        this.nonce = source["nonce"];
+	        this.totalTxCount = source["totalTxCount"];
 	        this.isBrandNew = source["isBrandNew"];
+	        this.firstSeen = this.convertValues(source["firstSeen"], null);
+	        this.ageHours = source["ageHours"];
+	        this.balanceMatic = source["balanceMatic"];
+	        this.balanceUsdc = source["balanceUsdc"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

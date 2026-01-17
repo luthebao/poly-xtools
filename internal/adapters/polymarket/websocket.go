@@ -376,11 +376,11 @@ func (c *WebSocketClient) processTradePayload(payload map[string]any) {
 		event.RawData = string(rawBytes)
 	}
 
-	// Generate market link
-	if event.MarketSlug != "" {
-		event.MarketLink = fmt.Sprintf("https://polymarket.com/event/%s", event.MarketSlug)
-	} else if event.EventSlug != "" {
+	// Generate market link - prefer EventSlug (event page) over MarketSlug (specific odds)
+	if event.EventSlug != "" {
 		event.MarketLink = fmt.Sprintf("https://polymarket.com/event/%s", event.EventSlug)
+	} else if event.MarketSlug != "" {
+		event.MarketLink = fmt.Sprintf("https://polymarket.com/event/%s", event.MarketSlug)
 	}
 
 	// Update counters

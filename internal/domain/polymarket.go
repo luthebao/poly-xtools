@@ -21,6 +21,17 @@ const (
 	OrderSideSell OrderSide = "SELL"
 )
 
+// FreshnessLevel represents the freshness category of a wallet based on bet count
+type FreshnessLevel string
+
+const (
+	FreshnessNone       FreshnessLevel = ""            // Not fresh (exceeds all thresholds)
+	FreshnessInsider    FreshnessLevel = "insider"     // 0-3 bets: likely insider
+	FreshnessWallet     FreshnessLevel = "fresh"       // 0-10 bets: fresh wallet
+	FreshnessNewbie     FreshnessLevel = "newbie"      // 0-20 bets: new user
+	FreshnessCustom     FreshnessLevel = "fresher"     // Custom threshold
+)
+
 // PolymarketEvent represents a generic event from Polymarket WebSocket
 type PolymarketEvent struct {
 	ID          int64               `json:"id"`
@@ -63,17 +74,24 @@ type PolymarketEvent struct {
 
 // WalletProfile contains analyzed wallet information
 type WalletProfile struct {
-	Address        string    `json:"address"`
-	Nonce          int       `json:"nonce"`          // Transaction count
-	FirstSeen      time.Time `json:"firstSeen,omitempty"`
-	AgeHours       float64   `json:"ageHours,omitempty"`
-	IsFresh        bool      `json:"isFresh"`
-	TotalTxCount   int       `json:"totalTxCount"`
-	BalanceMatic   string    `json:"balanceMatic,omitempty"`
-	BalanceUSDC    string    `json:"balanceUsdc,omitempty"`
-	AnalyzedAt     time.Time `json:"analyzedAt"`
-	FreshThreshold int       `json:"freshThreshold"`
-	IsBrandNew     bool      `json:"isBrandNew"` // nonce == 0
+	Address        string         `json:"address"`
+	BetCount       int            `json:"betCount"`          // Total number of trades/bets on Polymarket
+	JoinDate       string         `json:"joinDate"`          // When the wallet joined Polymarket (e.g., "Dec 2025")
+	FreshnessLevel FreshnessLevel `json:"freshnessLevel"`    // Categorized freshness level
+	IsFresh        bool           `json:"isFresh"`
+	AnalyzedAt     time.Time      `json:"analyzedAt"`
+	FreshThreshold int            `json:"freshThreshold"`    // Custom threshold used for detection
+
+	// Deprecated: kept for backward compatibility, use BetCount instead
+	Nonce        int  `json:"nonce,omitempty"`
+	TotalTxCount int  `json:"totalTxCount,omitempty"`
+	IsBrandNew   bool `json:"isBrandNew,omitempty"`
+
+	// Optional fields (not currently used)
+	FirstSeen    time.Time `json:"firstSeen,omitempty"`
+	AgeHours     float64   `json:"ageHours,omitempty"`
+	BalanceMatic string    `json:"balanceMatic,omitempty"`
+	BalanceUSDC  string    `json:"balanceUsdc,omitempty"`
 }
 
 // FreshWalletSignal represents a detected fresh wallet trade
@@ -143,27 +161,32 @@ type DatabaseInfo struct {
 
 // PolymarketConfig holds configuration for the Polymarket watcher
 type PolymarketConfig struct {
-	Enabled             bool     `json:"enabled"`
-	PolygonRPCURL       string   `json:"polygonRpcUrl,omitempty"`       // Deprecated: use PolygonRPCURLs
-	PolygonRPCURLs      []string `json:"polygonRpcUrls,omitempty"`      // Multiple RPC URLs with fallback
-	MinTradeSize        float64  `json:"minTradeSize"`                  // Min trade size in USDC to analyze
-	FreshWalletMaxNonce int      `json:"freshWalletMaxNonce"`           // Max nonce to be considered fresh
-	FreshWalletMaxAge   float64  `json:"freshWalletMaxAge"`             // Max age in hours
-	AlertThreshold      float64  `json:"alertThreshold"`                // Risk score threshold for alerts
+	Enabled        bool    `json:"enabled"`
+	MinTradeSize   float64 `json:"minTradeSize"`   // Min trade size in USDC to analyze
+	AlertThreshold float64 `json:"alertThreshold"` // Risk score threshold for alerts
+
+	// Fresh wallet detection thresholds (bet count based)
+	FreshInsiderMaxBets int `json:"freshInsiderMaxBets"` // Max bets to be "insider" (default: 3)
+	FreshWalletMaxBets  int `json:"freshWalletMaxBets"`  // Max bets to be "fresh" (default: 10)
+	FreshNewbieMaxBets  int `json:"freshNewbieMaxBets"`  // Max bets to be "newbie" (default: 20)
+	CustomFreshMaxBets  int `json:"customFreshMaxBets"`  // Custom threshold for "fresher" (0 = disabled)
+
+	// Deprecated: RPC-based detection is no longer used
+	PolygonRPCURL       string   `json:"polygonRpcUrl,omitempty"`
+	PolygonRPCURLs      []string `json:"polygonRpcUrls,omitempty"`
+	FreshWalletMaxNonce int      `json:"freshWalletMaxNonce,omitempty"`
+	FreshWalletMaxAge   float64  `json:"freshWalletMaxAge,omitempty"`
 }
 
 // DefaultPolymarketConfig returns default configuration
 func DefaultPolymarketConfig() PolymarketConfig {
 	return PolymarketConfig{
-		Enabled: true,
-		PolygonRPCURLs: []string{
-			"https://polygon-rpc.com",
-			"https://rpc.ankr.com/polygon",
-			"https://polygon.llamarpc.com",
-		},
+		Enabled:             true,
 		MinTradeSize:        100, // $100 minimum for fresh wallet analysis
-		FreshWalletMaxNonce: 5,
-		FreshWalletMaxAge:   48, // 48 hours
 		AlertThreshold:      0.7,
+		FreshInsiderMaxBets: 3,
+		FreshWalletMaxBets:  10,
+		FreshNewbieMaxBets:  20,
+		CustomFreshMaxBets:  0, // Disabled by default
 	}
 }

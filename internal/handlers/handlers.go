@@ -404,3 +404,11 @@ func (h *Handlers) SetPolymarketConfig(config domain.PolymarketConfig) {
 		h.polymarketSvc.UpdateConfig(config)
 	}
 }
+
+// GetPolymarketWallets returns all wallets from the database
+func (h *Handlers) GetPolymarketWallets(limit int) ([]domain.WalletProfile, error) {
+	if h.polymarketSvc == nil {
+		return nil, fmt.Errorf("polymarket service not initialized")
+	}
+	return h.polymarketSvc.GetWallets(limit)
+}

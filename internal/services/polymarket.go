@@ -23,10 +23,7 @@ type PolymarketService struct {
 	dbPath         string
 	config         domain.PolymarketConfig
 	saveFilter     domain.PolymarketEventFilter // Filter for saving events to DB
-
-	// Async analysis
-	analysisCh chan *domain.PolymarketEvent
-	stopCh     chan struct{}
+	stopCh         chan struct{}
 }
 
 // NewPolymarketService creates a new Polymarket service
@@ -37,8 +34,8 @@ func NewPolymarketService(store *storage.PolymarketStore, eventBus ports.EventBu
 		log.Printf("[PolymarketService] No saved config found, using defaults")
 		config = domain.DefaultPolymarketConfig()
 	} else {
-		log.Printf("[PolymarketService] Loaded config from database: RPC URLs=%d, FreshWalletMaxNonce=%d",
-			len(config.PolygonRPCURLs), config.FreshWalletMaxNonce)
+		log.Printf("[PolymarketService] Loaded config from database: InsiderMax=%d, WalletMax=%d, NewbieMax=%d, CustomMax=%d",
+			config.FreshInsiderMaxBets, config.FreshWalletMaxBets, config.FreshNewbieMaxBets, config.CustomFreshMaxBets)
 	}
 
 	// Try to load filter from database, fall back to defaults
@@ -56,8 +53,7 @@ func NewPolymarketService(store *storage.PolymarketStore, eventBus ports.EventBu
 		eventBus:       eventBus,
 		dbPath:         dbPath,
 		config:         config,
-		walletAnalyzer: polymarket.NewWalletAnalyzer(config),
-		analysisCh:     make(chan *domain.PolymarketEvent, 1000),
+		walletAnalyzer: polymarket.NewWalletAnalyzer(config, store),
 		saveFilter:     saveFilter,
 	}
 
@@ -131,63 +127,23 @@ func (s *PolymarketService) onEvent(event domain.PolymarketEvent) {
 	filter := s.saveFilter
 	s.mu.RUnlock()
 
-	// Check basic filters first (doesn't require wallet analysis)
+	// Check basic filters only (ignore fresh wallet filter for saving)
 	if !s.matchesBasicFilter(event, filter) {
 		return
 	}
 
-	// Check if fresh wallet filters are active
-	hasFreshWalletFilter := filter.FreshWalletsOnly || filter.MinRiskScore > 0 || filter.MaxWalletNonce > 0
-
-	// If fresh wallet filters are active, do synchronous wallet analysis
-	if hasFreshWalletFilter && event.WalletAddress != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		signal, err := s.walletAnalyzer.AnalyzeTrade(ctx, &event)
-		cancel()
-
+	// Save wallet address to DB for background analysis (if new)
+	if event.WalletAddress != "" {
+		isNew, err := s.store.SaveWalletAddress(event.WalletAddress)
 		if err != nil {
-			log.Printf("[PolymarketService] Wallet analysis error: %v", err)
-			return // Skip if analysis fails when filter is active
-		}
-
-		// Update fresh wallet counters if detected
-		if signal != nil && signal.Triggered {
-			s.client.IncrementFreshWalletsFound()
-
-			if signal.Confidence >= s.config.AlertThreshold {
-				log.Printf("[PolymarketService] HIGH RISK ALERT: Fresh wallet %s made $%.2f trade on %s (confidence: %.2f)",
-					shortenAddress(event.WalletAddress),
-					parseNotionalValue(event.Price, event.Size),
-					event.MarketSlug,
-					signal.Confidence)
-			}
-		}
-
-		// Now check fresh wallet filters with analyzed data
-		if !s.matchesFreshWalletFilter(event, filter) {
-			return
-		}
-
-		// Save and emit (wallet analysis already done)
-		s.saveAndEmit(event)
-
-		// Emit fresh wallet alert if applicable
-		if event.IsFreshWallet && event.RiskScore >= s.config.AlertThreshold {
-			s.eventBus.Emit("polymarket:fresh_wallet", event)
-		}
-	} else {
-		// No fresh wallet filter - save and emit immediately
-		s.saveAndEmit(event)
-
-		// Queue for background wallet analysis (non-blocking)
-		if event.WalletAddress != "" {
-			eventCopy := event
-			select {
-			case s.analysisCh <- &eventCopy:
-			default:
-			}
+			log.Printf("[PolymarketService] Failed to save wallet address: %v", err)
+		} else if isNew {
+			log.Printf("[PolymarketService] New wallet queued for analysis: %s", shortenAddress(event.WalletAddress))
 		}
 	}
+
+	// Save event to DB and emit to frontend immediately
+	s.saveAndEmit(event)
 }
 
 // matchesBasicFilter checks basic filter criteria (doesn't require wallet analysis)
@@ -246,69 +202,79 @@ func (s *PolymarketService) matchesBasicFilter(event domain.PolymarketEvent, fil
 	return true
 }
 
-// matchesFreshWalletFilter checks fresh wallet specific filters (requires wallet analysis to be done)
-func (s *PolymarketService) matchesFreshWalletFilter(event domain.PolymarketEvent, filter domain.PolymarketEventFilter) bool {
-	// Check fresh wallets only
-	if filter.FreshWalletsOnly && !event.IsFreshWallet {
-		return false
-	}
-
-	// Check min risk score
-	if filter.MinRiskScore > 0 && event.RiskScore < filter.MinRiskScore {
-		return false
-	}
-
-	// Check max wallet nonce
-	if filter.MaxWalletNonce > 0 {
-		if event.WalletProfile == nil || event.WalletProfile.Nonce > filter.MaxWalletNonce {
-			return false
-		}
-	}
-
-	return true
-}
-
-// walletAnalysisWorker processes events and analyzes wallets in background
+// walletAnalysisWorker periodically processes wallets in background
 func (s *PolymarketService) walletAnalysisWorker() {
 	log.Println("[PolymarketService] Starting wallet analysis worker")
+
+	// Process wallets every 10 seconds, batch of 10
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-s.stopCh:
 			log.Println("[PolymarketService] Wallet analysis worker stopped")
 			return
-		case event := <-s.analysisCh:
-			if event == nil {
-				continue
-			}
-
-			// Analyze for fresh wallet (with timeout)
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			signal, err := s.walletAnalyzer.AnalyzeTrade(ctx, event)
-			cancel()
-
-			if err != nil {
-				log.Printf("[PolymarketService] Wallet analysis error: %v", err)
-				continue
-			}
-
-			// If fresh wallet detected, update counters and emit alert
-			if signal != nil && signal.Triggered {
-				s.client.IncrementFreshWalletsFound()
-
-				// Log high-confidence alerts
-				if signal.Confidence >= s.config.AlertThreshold {
-					log.Printf("[PolymarketService] HIGH RISK ALERT: Fresh wallet %s made $%.2f trade on %s (confidence: %.2f)",
-						shortenAddress(event.WalletAddress),
-						parseNotionalValue(event.Price, event.Size),
-						event.MarketSlug,
-						signal.Confidence)
-
-					// Emit fresh wallet alert event
-					s.eventBus.Emit("polymarket:fresh_wallet", *event)
-				}
-			}
+		case <-ticker.C:
+			s.processWallets()
 		}
+	}
+}
+
+// processWallets fetches and updates wallet trade counts
+func (s *PolymarketService) processWallets() {
+	// Get wallets that need refresh (oldest analyzed first, includes unanalyzed)
+	addresses, err := s.store.GetWalletsForRefresh(10) // Process 10 at a time
+	if err != nil {
+		log.Printf("[PolymarketService] Failed to get wallets for refresh: %v", err)
+		return
+	}
+
+	if len(addresses) == 0 {
+		return
+	}
+
+	log.Printf("[PolymarketService] Refreshing %d wallets", len(addresses))
+
+	for _, address := range addresses {
+		// Check if stopped
+		select {
+		case <-s.stopCh:
+			return
+		default:
+		}
+
+		// Fetch fresh data from API (always re-fetch, ignore cache)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		profile, err := s.walletAnalyzer.FetchAndUpdateWallet(ctx, address)
+		cancel()
+
+		if err != nil {
+			log.Printf("[PolymarketService] Failed to refresh wallet %s: %v", shortenAddress(address), err)
+			continue
+		}
+
+		if profile == nil || profile.BetCount < 0 {
+			log.Printf("[PolymarketService] Could not get stats for wallet %s", shortenAddress(address))
+			continue
+		}
+
+		// If fresh wallet, emit alert and update counter
+		if profile.IsFresh {
+			s.client.IncrementFreshWalletsFound()
+
+			log.Printf("[PolymarketService] FRESH WALLET DETECTED: %s (trades=%d, joinDate=%s, level=%s)",
+				shortenAddress(address),
+				profile.BetCount,
+				profile.JoinDate,
+				profile.FreshnessLevel)
+
+			// Emit fresh wallet alert with profile
+			s.eventBus.Emit("polymarket:fresh_wallet_detected", *profile)
+		}
+
+		// Small delay between API calls to avoid rate limiting
+		time.Sleep(500 * time.Millisecond)
 	}
 }
 
@@ -350,14 +316,14 @@ func (s *PolymarketService) UpdateConfig(config domain.PolymarketConfig) {
 	defer s.mu.Unlock()
 
 	s.config = config
-	s.walletAnalyzer = polymarket.NewWalletAnalyzer(config)
+	s.walletAnalyzer = polymarket.NewWalletAnalyzer(config, s.store)
 
 	// Save to database
 	if err := s.store.SaveConfig(config); err != nil {
 		log.Printf("[PolymarketService] Failed to save config: %v", err)
 	} else {
-		log.Printf("[PolymarketService] Config saved to database: RPC URLs=%d, FreshWalletMaxNonce=%d",
-			len(config.PolygonRPCURLs), config.FreshWalletMaxNonce)
+		log.Printf("[PolymarketService] Config saved to database: InsiderMax=%d, WalletMax=%d, NewbieMax=%d, CustomMax=%d",
+			config.FreshInsiderMaxBets, config.FreshWalletMaxBets, config.FreshNewbieMaxBets, config.CustomFreshMaxBets)
 	}
 }
 
@@ -388,6 +354,11 @@ func (s *PolymarketService) GetSaveFilter() domain.PolymarketEventFilter {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.saveFilter
+}
+
+// GetWallets retrieves all wallets from the database
+func (s *PolymarketService) GetWallets(limit int) ([]domain.WalletProfile, error) {
+	return s.store.GetAllWallets(limit)
 }
 
 // Helper functions

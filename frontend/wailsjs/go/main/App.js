@@ -102,6 +102,10 @@ export function GetPolymarketSaveFilter() {
   return window['go']['main']['App']['GetPolymarketSaveFilter']();
 }
 
+export function GetPolymarketWallets(arg1) {
+  return window['go']['main']['App']['GetPolymarketWallets'](arg1);
+}
+
 export function GetPolymarketWatcherStatus() {
   return window['go']['main']['App']['GetPolymarketWatcherStatus']();
 }

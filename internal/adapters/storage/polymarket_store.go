@@ -89,6 +89,31 @@ func (s *PolymarketStore) migrate() error {
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`
 
+	// Wallets table for caching wallet profiles
+	walletsTable := `CREATE TABLE IF NOT EXISTS polymarket_wallets (
+		address TEXT PRIMARY KEY,
+		bet_count INTEGER NOT NULL DEFAULT -1,
+		join_date TEXT,
+		freshness_level TEXT,
+		is_fresh INTEGER DEFAULT 0,
+		first_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		last_analyzed_at DATETIME,
+		total_trades INTEGER DEFAULT 0,
+		total_volume REAL DEFAULT 0
+	)`
+
+	walletsIndexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_wallets_bet_count ON polymarket_wallets(bet_count)`,
+		`CREATE INDEX IF NOT EXISTS idx_wallets_is_fresh ON polymarket_wallets(is_fresh) WHERE is_fresh = 1`,
+		`CREATE INDEX IF NOT EXISTS idx_wallets_last_analyzed ON polymarket_wallets(last_analyzed_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_wallets_unanalyzed ON polymarket_wallets(bet_count) WHERE bet_count = -1`,
+	}
+
+	// Add join_date column if it doesn't exist (migration)
+	walletMigrations := []string{
+		`ALTER TABLE polymarket_wallets ADD COLUMN join_date TEXT`,
+	}
+
 	for _, m := range migrations {
 		if _, err := s.db.Exec(m); err != nil {
 			return fmt.Errorf("migration failed: %w", err)
@@ -100,6 +125,11 @@ func (s *PolymarketStore) migrate() error {
 		return fmt.Errorf("failed to create settings table: %w", err)
 	}
 
+	// Create wallets table
+	if _, err := s.db.Exec(walletsTable); err != nil {
+		return fmt.Errorf("failed to create wallets table: %w", err)
+	}
+
 	// Add new columns (ignore "duplicate column" errors)
 	for _, col := range newColumns {
 		s.db.Exec(col) // Ignore errors for existing columns
@@ -108,6 +138,16 @@ func (s *PolymarketStore) migrate() error {
 	// Add new indexes
 	for _, idx := range newIndexes {
 		s.db.Exec(idx) // Ignore errors if index exists
+	}
+
+	// Add wallet indexes
+	for _, idx := range walletsIndexes {
+		s.db.Exec(idx)
+	}
+
+	// Run wallet table migrations (ignore errors for existing columns)
+	for _, mig := range walletMigrations {
+		s.db.Exec(mig)
 	}
 
 	return nil
@@ -130,7 +170,12 @@ func (s *PolymarketStore) SaveEvent(event domain.PolymarketEvent) error {
 
 	var walletNonce *int
 	if event.WalletProfile != nil {
-		walletNonce = &event.WalletProfile.Nonce
+		// Store betCount (use BetCount if available, fall back to Nonce for backward compatibility)
+		if event.WalletProfile.BetCount > 0 {
+			walletNonce = &event.WalletProfile.BetCount
+		} else {
+			walletNonce = &event.WalletProfile.Nonce
+		}
 	}
 
 	_, err := s.db.Exec(`
@@ -299,7 +344,8 @@ func (s *PolymarketStore) GetEvents(filter domain.PolymarketEventFilter) ([]doma
 		if walletNonce.Valid {
 			e.WalletProfile = &domain.WalletProfile{
 				Address:  walletAddress.String,
-				Nonce:    int(walletNonce.Int64),
+				BetCount: int(walletNonce.Int64),
+				Nonce:    int(walletNonce.Int64), // Backward compatibility
 				IsFresh:  isFreshWallet.Bool,
 			}
 		}
@@ -324,14 +370,18 @@ func (s *PolymarketStore) GetFreshWalletCount() (int64, error) {
 	return count, err
 }
 
-// ClearEvents removes all Polymarket events
+// ClearEvents removes all Polymarket events and wallets
 func (s *PolymarketStore) ClearEvents() error {
-	_, err := s.db.Exec("DELETE FROM polymarket_events")
-	if err != nil {
+	// Clear events
+	if _, err := s.db.Exec("DELETE FROM polymarket_events"); err != nil {
+		return err
+	}
+	// Clear wallets
+	if _, err := s.db.Exec("DELETE FROM polymarket_wallets"); err != nil {
 		return err
 	}
 	// Vacuum to reclaim space
-	_, err = s.db.Exec("VACUUM")
+	_, err := s.db.Exec("VACUUM")
 	return err
 }
 
@@ -429,4 +479,196 @@ func (s *PolymarketStore) LoadFilter() (domain.PolymarketEventFilter, error) {
 		return domain.PolymarketEventFilter{MinSize: 100}, err
 	}
 	return filter, nil
+}
+
+// SaveWallet saves or updates a wallet profile in the database
+func (s *PolymarketStore) SaveWallet(profile domain.WalletProfile) error {
+	_, err := s.db.Exec(`
+		INSERT INTO polymarket_wallets (address, bet_count, join_date, freshness_level, is_fresh, first_seen_at, last_analyzed_at)
+		VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+		ON CONFLICT(address) DO UPDATE SET
+			bet_count = ?,
+			join_date = ?,
+			freshness_level = ?,
+			is_fresh = ?,
+			last_analyzed_at = ?`,
+		profile.Address, profile.BetCount, profile.JoinDate, string(profile.FreshnessLevel), profile.IsFresh, profile.AnalyzedAt,
+		profile.BetCount, profile.JoinDate, string(profile.FreshnessLevel), profile.IsFresh, profile.AnalyzedAt,
+	)
+	return err
+}
+
+// GetWallet retrieves a wallet profile from the database
+func (s *PolymarketStore) GetWallet(address string) (*domain.WalletProfile, error) {
+	var profile domain.WalletProfile
+	var freshnessLevel sql.NullString
+	var joinDate sql.NullString
+	var isFresh bool
+	var lastAnalyzedAt sql.NullTime
+
+	err := s.db.QueryRow(`
+		SELECT address, bet_count, join_date, freshness_level, is_fresh, first_seen_at, last_analyzed_at
+		FROM polymarket_wallets WHERE address = ?`, address).
+		Scan(&profile.Address, &profile.BetCount, &joinDate, &freshnessLevel, &isFresh, &profile.FirstSeen, &lastAnalyzedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	profile.JoinDate = joinDate.String
+	profile.FreshnessLevel = domain.FreshnessLevel(freshnessLevel.String)
+	profile.IsFresh = isFresh
+	profile.Nonce = profile.BetCount // Backward compatibility
+	if lastAnalyzedAt.Valid {
+		profile.AnalyzedAt = lastAnalyzedAt.Time
+	}
+
+	return &profile, nil
+}
+
+// GetFreshWallets retrieves all fresh wallets from the database
+func (s *PolymarketStore) GetFreshWallets(limit int) ([]domain.WalletProfile, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := s.db.Query(`
+		SELECT address, bet_count, join_date, freshness_level, is_fresh, first_seen_at, last_analyzed_at
+		FROM polymarket_wallets
+		WHERE is_fresh = 1
+		ORDER BY last_analyzed_at DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.scanWalletRows(rows)
+}
+
+// GetAllWallets retrieves all wallets from the database
+func (s *PolymarketStore) GetAllWallets(limit int) ([]domain.WalletProfile, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	rows, err := s.db.Query(`
+		SELECT address, bet_count, join_date, freshness_level, is_fresh, first_seen_at, last_analyzed_at
+		FROM polymarket_wallets
+		ORDER BY first_seen_at DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.scanWalletRows(rows)
+}
+
+func (s *PolymarketStore) scanWalletRows(rows *sql.Rows) ([]domain.WalletProfile, error) {
+	var wallets []domain.WalletProfile
+	for rows.Next() {
+		var profile domain.WalletProfile
+		var joinDate sql.NullString
+		var freshnessLevel sql.NullString
+		var isFresh bool
+		var lastAnalyzedAt sql.NullTime
+
+		if err := rows.Scan(&profile.Address, &profile.BetCount, &joinDate, &freshnessLevel, &isFresh, &profile.FirstSeen, &lastAnalyzedAt); err != nil {
+			continue
+		}
+
+		profile.JoinDate = joinDate.String
+		profile.FreshnessLevel = domain.FreshnessLevel(freshnessLevel.String)
+		profile.IsFresh = isFresh
+		profile.Nonce = profile.BetCount // Backward compatibility
+		if lastAnalyzedAt.Valid {
+			profile.AnalyzedAt = lastAnalyzedAt.Time
+		}
+		wallets = append(wallets, profile)
+	}
+
+	return wallets, nil
+}
+
+// UpdateWalletTradeStats updates trade statistics for a wallet
+func (s *PolymarketStore) UpdateWalletTradeStats(address string, tradeVolume float64) error {
+	_, err := s.db.Exec(`
+		UPDATE polymarket_wallets
+		SET total_trades = total_trades + 1, total_volume = total_volume + ?
+		WHERE address = ?`, tradeVolume, address)
+	return err
+}
+
+// SaveWalletAddress saves a wallet address without analysis (for later background processing)
+// Returns true if this is a new wallet, false if it already exists
+func (s *PolymarketStore) SaveWalletAddress(address string) (bool, error) {
+	result, err := s.db.Exec(`
+		INSERT INTO polymarket_wallets (address, bet_count, first_seen_at)
+		VALUES (?, -1, CURRENT_TIMESTAMP)
+		ON CONFLICT(address) DO NOTHING`, address)
+	if err != nil {
+		return false, err
+	}
+	rowsAffected, _ := result.RowsAffected()
+	return rowsAffected > 0, nil
+}
+
+// GetUnanalyzedWallets returns wallets that haven't been analyzed yet (bet_count = -1)
+func (s *PolymarketStore) GetUnanalyzedWallets(limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := s.db.Query(`
+		SELECT address FROM polymarket_wallets
+		WHERE bet_count = -1
+		ORDER BY first_seen_at DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var addresses []string
+	for rows.Next() {
+		var addr string
+		if err := rows.Scan(&addr); err != nil {
+			continue
+		}
+		addresses = append(addresses, addr)
+	}
+
+	return addresses, nil
+}
+
+// GetWalletsForRefresh returns wallets that need refresh, prioritizing unanalyzed then oldest analyzed
+// Only returns wallets with bet_count <= 50 (or unanalyzed with bet_count = -1)
+func (s *PolymarketStore) GetWalletsForRefresh(limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	// Get unanalyzed wallets first, then wallets with <= 50 trades by oldest last_analyzed_at
+	rows, err := s.db.Query(`
+		SELECT address FROM polymarket_wallets
+		WHERE bet_count = -1 OR bet_count <= 50
+		ORDER BY
+			CASE WHEN bet_count = -1 THEN 0 ELSE 1 END,
+			COALESCE(last_analyzed_at, '1970-01-01') ASC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var addresses []string
+	for rows.Next() {
+		var addr string
+		if err := rows.Scan(&addr); err != nil {
+			continue
+		}
+		addresses = append(addresses, addr)
+	}
+
+	return addresses, nil
 }

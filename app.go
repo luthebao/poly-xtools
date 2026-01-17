@@ -402,3 +402,8 @@ func (a *App) GetPolymarketConfig() domain.PolymarketConfig {
 func (a *App) SetPolymarketConfig(config domain.PolymarketConfig) {
 	a.handlers.SetPolymarketConfig(config)
 }
+
+// GetPolymarketWallets returns all wallets from the database
+func (a *App) GetPolymarketWallets(limit int) ([]domain.WalletProfile, error) {
+	return a.handlers.GetPolymarketWallets(limit)
+}
