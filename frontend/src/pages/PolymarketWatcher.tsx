@@ -15,6 +15,7 @@ import {
     Settings,
     ChevronLeft,
     ChevronRight,
+    ExternalLink,
 } from 'lucide-react';
 import Button from '../components/common/Button';
 import { Badge } from '../components/ui/badge';
@@ -48,6 +49,7 @@ import {
     GetPolymarketWallets,
 } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsOff, BrowserOpenURL } from '../../wailsjs/runtime/runtime';
+import { cn } from '@/lib/utils';
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
     trade: 'Trade',
@@ -85,8 +87,8 @@ export default function PolymarketWatcher() {
     const [showSettings, setShowSettings] = useState(false);
     const [autoRefresh, setAutoRefresh] = useState(true);
     const [config, setConfig] = useState<PolymarketConfig | null>(null);
-    // Fresh wallets from DB for highlighting
-    const [freshWalletAddresses, setFreshWalletAddresses] = useState<Set<string>>(new Set());
+    // Fresh wallets from DB for highlighting (stores full profiles)
+    const [freshWalletProfiles, setFreshWalletProfiles] = useState<Map<string, WalletProfile>>(new Map());
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize] = useState(50);
@@ -112,8 +114,14 @@ export default function PolymarketWatcher() {
     // Helper to check if wallet is fresh (from DB)
     const isWalletFresh = useCallback((walletAddress: string | undefined): boolean => {
         if (!walletAddress) return false;
-        return freshWalletAddresses.has(walletAddress.toLowerCase());
-    }, [freshWalletAddresses]);
+        return freshWalletProfiles.has(walletAddress.toLowerCase());
+    }, [freshWalletProfiles]);
+
+    // Helper to get wallet profile from DB
+    const getWalletProfileFromDB = useCallback((walletAddress: string | undefined): WalletProfile | undefined => {
+        if (!walletAddress) return undefined;
+        return freshWalletProfiles.get(walletAddress.toLowerCase());
+    }, [freshWalletProfiles]);
 
     // Filtered events based on local table filters
     const filteredEvents = useMemo(() => {
@@ -163,13 +171,13 @@ export default function PolymarketWatcher() {
     const loadFreshWallets = useCallback(async () => {
         try {
             const wallets = await GetPolymarketWallets(10000);
-            const freshSet = new Set<string>();
+            const profileMap = new Map<string, WalletProfile>();
             (wallets || []).forEach((w: WalletProfile) => {
                 if (w.isFresh) {
-                    freshSet.add(w.address.toLowerCase());
+                    profileMap.set(w.address.toLowerCase(), w);
                 }
             });
-            setFreshWalletAddresses(freshSet);
+            setFreshWalletProfiles(profileMap);
         } catch (err) {
             console.error('Failed to load fresh wallets:', err);
         }
@@ -537,6 +545,7 @@ export default function PolymarketWatcher() {
                                     key={event.id || `${event.timestamp}-${event.tradeId}`}
                                     event={event}
                                     isWalletFreshFromDB={isWalletFresh(event.walletAddress)}
+                                    walletProfileFromDB={getWalletProfileFromDB(event.walletAddress)}
                                 />
                             ))}
                         </div>
@@ -824,6 +833,7 @@ export default function PolymarketWatcher() {
 interface EventCardProps {
     event: PolymarketEvent;
     isWalletFreshFromDB: boolean;
+    walletProfileFromDB?: WalletProfile;
 }
 
 function shortenAddress(addr: string): string {
@@ -843,7 +853,7 @@ function formatNotionalValue(event: PolymarketEvent): string {
     return getNotionalValue(event).toFixed(2);
 }
 
-function EventCard({ event, isWalletFreshFromDB }: EventCardProps) {
+function EventCard({ event, isWalletFreshFromDB, walletProfileFromDB }: EventCardProps) {
     const openUrl = (url: string) => {
         BrowserOpenURL(url);
     };
@@ -855,16 +865,28 @@ function EventCard({ event, isWalletFreshFromDB }: EventCardProps) {
         return null;
     };
 
+    const getEventUrl = () => {
+        if (event.marketLink) {
+            return event.marketLink;
+        }
+        if (event.eventSlug) {
+            return `https://polymarket.com/event/${event.eventSlug}`;
+        }
+        return null;
+    };
+
     // Highlight if either the event is marked fresh OR the wallet is fresh in DB
     const isFresh = event.isFreshWallet === true || isWalletFreshFromDB;
+    const eventUrl = getEventUrl();
+    // Use wallet profile from DB if available, otherwise use event's wallet profile
+    const walletProfile = walletProfileFromDB || event.walletProfile;
 
     return (
         <div
-            className={`p-2 rounded-lg border text-xs ${
-                isFresh
-                    ? 'border-orange-500 bg-orange-500/10'
-                    : 'border-border bg-card/50'
-            }`}
+            className={`p-2 rounded-lg border text-xs ${isFresh
+                ? 'border-orange-500 bg-orange-500/10'
+                : 'border-border bg-card/50'
+                }`}
         >
             {/* Header: Side + Value + Time */}
             <div className="flex items-center justify-between gap-1 mb-1">
@@ -883,21 +905,42 @@ function EventCard({ event, isWalletFreshFromDB }: EventCardProps) {
                 </span>
             </div>
 
+            {/* Price & Shares */}
+            <div className="flex items-center gap-2 mb-1 text-muted-foreground">
+                <span>
+                    <span className="text-foreground font-medium">{parseFloat(event.price || '0').toFixed(2)}¢</span> × <span className="text-foreground font-medium">{parseFloat(event.size || '0').toFixed(0)}</span> shares
+                </span>
+            </div>
+
             {/* Fresh Wallet Badge */}
             {isFresh && (
                 <div className="flex items-center gap-1 mb-1">
                     <AlertTriangle size={10} className="text-orange-500" />
                     <span className="text-orange-500 font-medium">
-                        {event.walletProfile?.betCount ?? '?'} trades
-                        {event.walletProfile?.joinDate && ` · ${event.walletProfile.joinDate}`}
+                        {walletProfile?.totalTxCount ?? '?'} trades
+                        {walletProfile?.joinDate && ` · ${walletProfile.joinDate}`}
                     </span>
                 </div>
             )}
 
-            {/* Market Name */}
-            <div className="text-muted-foreground truncate mb-1" title={event.eventTitle || event.marketName}>
-                {event.outcome && <span className="font-medium text-foreground">{event.outcome}: </span>}
-                {event.eventTitle || event.marketName || event.marketSlug || '-'}
+            {/* Market Name with Link */}
+            <div className="flex items-center gap-1 mb-1">
+                <div className="text-muted-foreground text-wrap flex-1" title={event.eventTitle || event.marketName}>
+                    {event.outcome && <span className={cn(
+                        "font-bold",
+                        event.outcome && event.outcome === "Yes" ? "text-green-800" : "text-red-800"
+                    )}>{event.outcome}: </span>}
+                    {event.eventTitle || event.marketName || event.marketSlug || '-'}
+                </div>
+                {eventUrl && (
+                    <button
+                        onClick={() => openUrl(eventUrl)}
+                        className="text-muted-foreground hover:text-primary shrink-0"
+                        title="Open event on Polymarket"
+                    >
+                        <ExternalLink size={12} />
+                    </button>
+                )}
             </div>
 
             {/* Wallet Link */}
