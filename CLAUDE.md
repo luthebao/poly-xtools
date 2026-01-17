@@ -62,12 +62,14 @@ XTools is a Twitter automation desktop app using **Wails v2** (Go + React) with 
 - `events/` - Wails runtime event emission
 - `ratelimit/` - Token bucket implementation
 - `activity/` - In-memory activity logging
+- `polymarket/` - WebSocket client for live trade data, wallet analyzer for fresh wallet detection
 
 **Services Layer** (`internal/services/`):
 
 - `AccountService` - account CRUD, Twitter client lifecycle
 - `SearchService` - keyword search, filtering, Excel saving
 - `ReplyService` - LLM generation, approval queue, posting
+- `PolymarketService` - Polymarket trade watching, fresh wallet detection
 
 **Workers Layer** (`internal/workers/`):
 
@@ -170,3 +172,22 @@ cd frontend && pnpm dlx shadcn@latest add <component-name>
 ```
 
 Components are placed in `frontend/src/components/ui/` and re-exported from `index.ts`.
+
+## Polymarket Watcher
+
+The Polymarket watcher monitors live trades via WebSocket (`wss://ws-live-data.polymarket.com`) and detects fresh wallets using Polygon RPC.
+
+**Key components:**
+- `internal/adapters/polymarket/websocket.go` - WebSocket connection with auto-reconnect
+- `internal/adapters/polymarket/wallet_analyzer.go` - Checks wallet nonce via Polygon RPC (multiple URLs with fallback)
+- `internal/services/polymarket.go` - Orchestrates watching, filtering, and storage
+- `internal/adapters/storage/polymarket_store.go` - SQLite storage for events and settings
+
+**Real-time event flow:**
+1. WebSocket receives trade → `onEvent` callback
+2. Event checked against save filter (min size, side, market name, etc.)
+3. If fresh wallet filters active, synchronous wallet analysis before saving
+4. Event saved to SQLite and emitted via `EventBus` to frontend
+5. Frontend receives via `EventsOn('polymarket:event', handler)`
+
+**Settings persistence:** Filter and RPC config stored in `polymarket_settings` table, loaded on service startup.
