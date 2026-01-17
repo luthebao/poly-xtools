@@ -128,7 +128,6 @@ Data stored in OS-specific application directory:
 
 Within the data directory:
 
-
 - `accounts/*.yml` - Account configs (one file per account)
 - `xtools.db` - SQLite database with WAL mode (metrics, replies)
 - `exports/` - Excel files per account
