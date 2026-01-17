@@ -1,9 +1,8 @@
 name: Release
 
 on:
-    push:
-        tags:
-            - "v*-release"
+    release:
+        types: [prereleased]
 
 permissions:
     contents: write
@@ -109,12 +108,18 @@ jobs:
                   name: xtools-windows
                   path: artifacts
 
-            - name: Create Release
+            - name: Upload assets to pre-release
               uses: softprops/action-gh-release@v2
               with:
+                  tag_name: ${{ github.event.release.tag_name }}
                   files: |
                       artifacts/xtools-macos-universal.dmg
                       artifacts/xtools-windows-amd64.zip
-                  generate_release_notes: true
-                  draft: false
-                  prerelease: false
+
+            - name: Convert pre-release to full release
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  gh release edit ${{ github.event.release.tag_name }} \
+                    --repo ${{ github.repository }} \
+                    --prerelease=false
