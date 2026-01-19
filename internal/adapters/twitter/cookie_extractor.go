@@ -27,19 +27,33 @@ func NewCookieExtractor() *CookieExtractor {
 
 // ExtractCookies opens browser for login and extracts cookies
 func (e *CookieExtractor) ExtractCookies(ctx context.Context) (*domain.BrowserAuth, error) {
-	// Launch visible browser for user to log in
+	// Launch visible browser for user to log in with stealth settings
 	path, _ := launcher.LookPath()
 	u := launcher.New().
 		Bin(path).
 		Headless(false).
+		// Anti-bot detection flags
 		Set("disable-blink-features", "AutomationControlled").
+		Set("disable-features", "IsolateOrigins,site-per-process").
+		Set("disable-infobars").
+		Set("disable-dev-shm-usage").
+		Set("no-first-run").
+		Set("no-default-browser-check").
+		Delete("enable-automation").
 		MustLaunch()
 
 	e.browser = rod.New().ControlURL(u).MustConnect()
 	defer e.browser.MustClose()
 
+	// Create page with stealth scripts
+	page := e.browser.MustPage("")
+
+	// Inject stealth scripts before navigation to avoid detection
+	e.injectStealthScripts(page)
+
 	// Navigate to Twitter login
-	page := e.browser.MustPage("https://twitter.com/i/flow/login")
+	page.MustNavigate("https://twitter.com/i/flow/login")
+	page.MustWaitLoad()
 
 	fmt.Println("[Cookie Extractor] Browser opened. Please log in to Twitter...")
 	fmt.Println("[Cookie Extractor] Waiting for login (max 5 minutes)...")
@@ -161,6 +175,61 @@ func protoCookieToDomain(c *proto.NetworkCookie) domain.Cookie {
 		Secure:   c.Secure,
 		HttpOnly: c.HTTPOnly,
 	}
+}
+
+// injectStealthScripts injects JavaScript to avoid bot detection
+func (e *CookieExtractor) injectStealthScripts(page *rod.Page) {
+	// Override webdriver property
+	page.MustEvalOnNewDocument(`
+		Object.defineProperty(navigator, 'webdriver', {
+			get: () => undefined
+		});
+	`)
+
+	// Override plugins to appear more realistic
+	page.MustEvalOnNewDocument(`
+		Object.defineProperty(navigator, 'plugins', {
+			get: () => [
+				{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
+				{ name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai' },
+				{ name: 'Native Client', filename: 'internal-nacl-plugin' }
+			]
+		});
+	`)
+
+	// Override languages
+	page.MustEvalOnNewDocument(`
+		Object.defineProperty(navigator, 'languages', {
+			get: () => ['en-US', 'en']
+		});
+	`)
+
+	// Override permissions query
+	page.MustEvalOnNewDocument(`
+		const originalQuery = window.navigator.permissions.query;
+		window.navigator.permissions.query = (parameters) => (
+			parameters.name === 'notifications' ?
+				Promise.resolve({ state: Notification.permission }) :
+				originalQuery(parameters)
+		);
+	`)
+
+	// Override chrome property
+	page.MustEvalOnNewDocument(`
+		window.chrome = {
+			runtime: {},
+			loadTimes: function() {},
+			csi: function() {},
+			app: {}
+		};
+	`)
+
+	// Hide automation indicators in chrome
+	page.MustEvalOnNewDocument(`
+		Object.defineProperty(navigator, 'maxTouchPoints', {
+			get: () => 0
+		});
+	`)
 }
 
 // Close cleans up the browser
