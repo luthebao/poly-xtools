@@ -28,4 +28,10 @@ type NotificationStore interface {
 
 	// LoadNotificationConfig loads the notification configuration
 	LoadNotificationConfig() (domain.NotificationConfig, error)
+
+	// HasNotified checks if an item has already been notified
+	HasNotified(itemType, itemID string) (bool, error)
+
+	// MarkNotified marks an item as notified
+	MarkNotified(itemType, itemID string) error
 }

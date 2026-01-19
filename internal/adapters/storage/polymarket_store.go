@@ -150,6 +150,17 @@ func (s *PolymarketStore) migrate() error {
 		s.db.Exec(mig)
 	}
 
+	// Notified items table for tracking sent notifications
+	notifiedItemsTable := `CREATE TABLE IF NOT EXISTS notified_items (
+		item_type TEXT NOT NULL,
+		item_id TEXT NOT NULL,
+		notified_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (item_type, item_id)
+	)`
+	if _, err := s.db.Exec(notifiedItemsTable); err != nil {
+		return fmt.Errorf("failed to create notified_items table: %w", err)
+	}
+
 	return nil
 }
 
@@ -686,4 +697,26 @@ func (s *PolymarketStore) LoadNotificationConfig() (domain.NotificationConfig, e
 		return domain.DefaultNotificationConfig(), err
 	}
 	return config, nil
+}
+
+// HasNotified checks if an item has already been notified
+func (s *PolymarketStore) HasNotified(itemType, itemID string) (bool, error) {
+	var count int
+	err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM notified_items
+		WHERE item_type = ? AND item_id = ?`,
+		itemType, itemID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// MarkNotified marks an item as notified
+func (s *PolymarketStore) MarkNotified(itemType, itemID string) error {
+	_, err := s.db.Exec(`
+		INSERT OR IGNORE INTO notified_items (item_type, item_id, notified_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP)`,
+		itemType, itemID)
+	return err
 }

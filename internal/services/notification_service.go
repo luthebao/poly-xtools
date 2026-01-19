@@ -11,18 +11,20 @@ import (
 	"xtools/internal/ports"
 )
 
+// Notification item types for deduplication
+const (
+	NotifyTypeBigTrade    = "big_trade"
+	NotifyTypeFreshWallet = "fresh_wallet"
+)
+
 // NotificationService handles notification orchestration
 type NotificationService struct {
-	mu        sync.RWMutex
-	config    domain.NotificationConfig
-	store     ports.NotificationStore
-	eventBus  ports.EventBus
-	telegram  *notification.TelegramNotifier
-	stopCh    chan struct{}
-
-	// Track notified wallets to prevent duplicate fresh wallet notifications
-	notifiedWallets     map[string]bool
-	notifiedWalletsMu   sync.RWMutex
+	mu       sync.RWMutex
+	config   domain.NotificationConfig
+	store    ports.NotificationStore
+	eventBus ports.EventBus
+	telegram *notification.TelegramNotifier
+	stopCh   chan struct{}
 }
 
 // NewNotificationService creates a new notification service
@@ -38,11 +40,10 @@ func NewNotificationService(store ports.NotificationStore, eventBus ports.EventB
 	}
 
 	svc := &NotificationService{
-		config:          config,
-		store:           store,
-		eventBus:        eventBus,
-		telegram:        notification.NewTelegramNotifier(config.TelegramBotToken, config.TelegramChatIDs),
-		notifiedWallets: make(map[string]bool),
+		config:   config,
+		store:    store,
+		eventBus: eventBus,
+		telegram: notification.NewTelegramNotifier(config.TelegramBotToken, config.TelegramChatIDs),
 	}
 
 	return svc
@@ -138,6 +139,29 @@ func (s *NotificationService) handlePolymarketEvent(data interface{}) {
 		return
 	}
 
+	// Use trade ID as unique identifier for deduplication
+	tradeID := event.TradeID
+	if tradeID == "" {
+		// Fallback: generate a unique ID from event data
+		tradeID = event.WalletAddress + "_" + event.Timestamp.Format(time.RFC3339Nano)
+	}
+
+	// Check if already notified (database lookup)
+	notified, err := s.store.HasNotified(NotifyTypeBigTrade, tradeID)
+	if err != nil {
+		log.Printf("[NotificationService] Error checking notification status: %v", err)
+		return
+	}
+	if notified {
+		return // Already notified for this trade
+	}
+
+	// Mark as notified BEFORE sending to prevent duplicates on retry
+	if err := s.store.MarkNotified(NotifyTypeBigTrade, tradeID); err != nil {
+		log.Printf("[NotificationService] Error marking as notified: %v", err)
+		return
+	}
+
 	// Send big trade notification
 	content := domain.NewBigTradeNotification(event)
 	s.sendNotificationAsync(content)
@@ -159,15 +183,21 @@ func (s *NotificationService) handleFreshWalletDetected(data interface{}) {
 		return
 	}
 
-	// Check if we already notified for this wallet (first-time only)
-	s.notifiedWalletsMu.Lock()
-	walletKey := profile.Address
-	if s.notifiedWallets[walletKey] {
-		s.notifiedWalletsMu.Unlock()
+	// Check if already notified (database lookup)
+	notified, err := s.store.HasNotified(NotifyTypeFreshWallet, profile.Address)
+	if err != nil {
+		log.Printf("[NotificationService] Error checking notification status: %v", err)
+		return
+	}
+	if notified {
 		return // Already notified for this wallet
 	}
-	s.notifiedWallets[walletKey] = true
-	s.notifiedWalletsMu.Unlock()
+
+	// Mark as notified BEFORE sending to prevent duplicates on retry
+	if err := s.store.MarkNotified(NotifyTypeFreshWallet, profile.Address); err != nil {
+		log.Printf("[NotificationService] Error marking as notified: %v", err)
+		return
+	}
 
 	// Send fresh wallet notification
 	content := domain.NewFreshWalletNotification(profile)
@@ -184,15 +214,6 @@ func (s *NotificationService) sendNotificationAsync(content domain.NotificationC
 			log.Printf("[NotificationService] Failed to send notification: %v", err)
 		}
 	}()
-}
-
-// ClearNotifiedWallets clears the notified wallets cache
-// (useful for testing or when user wants to re-enable notifications)
-func (s *NotificationService) ClearNotifiedWallets() {
-	s.notifiedWalletsMu.Lock()
-	s.notifiedWallets = make(map[string]bool)
-	s.notifiedWalletsMu.Unlock()
-	log.Println("[NotificationService] Cleared notified wallets cache")
 }
 
 // IsConfigured returns true if notifications are configured and enabled
