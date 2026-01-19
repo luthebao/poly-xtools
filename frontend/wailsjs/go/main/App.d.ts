@@ -45,6 +45,8 @@ export function GetDatabaseInfo():Promise<domain.DatabaseInfo>;
 
 export function GetExportPath(arg1:string):Promise<string>;
 
+export function GetNotificationConfig():Promise<domain.NotificationConfig>;
+
 export function GetPendingReplies(arg1:string):Promise<Array<domain.ApprovalQueueItem>>;
 
 export function GetPolymarketConfig():Promise<domain.PolymarketConfig>;
@@ -69,6 +71,8 @@ export function GetWorkerStatus():Promise<Record<string, boolean>>;
 
 export function ManualSearch(arg1:string,arg2:string,arg3:number):Promise<Array<domain.Tweet>>;
 
+export function OpenFolder(arg1:string):Promise<void>;
+
 export function RejectReply(arg1:string):Promise<void>;
 
 export function ReloadAccount(arg1:string):Promise<domain.AccountConfig>;
@@ -78,6 +82,10 @@ export function RestartAccount(arg1:string):Promise<void>;
 export function SaveBrowserAuth(arg1:string,arg2:domain.BrowserAuth):Promise<void>;
 
 export function SearchTweets(arg1:string):Promise<Array<domain.Tweet>>;
+
+export function SendTestNotification():Promise<void>;
+
+export function SetNotificationConfig(arg1:domain.NotificationConfig):Promise<void>;
 
 export function SetPolymarketConfig(arg1:domain.PolymarketConfig):Promise<void>;
 

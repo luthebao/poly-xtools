@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/go-rod/rod v0.116.2
+	github.com/go-telegram/bot v1.17.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/mattn/go-sqlite3 v1.14.33

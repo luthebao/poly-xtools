@@ -1,22 +1,16 @@
 import { Outlet } from 'react-router-dom';
-import Sidebar from './Sidebar';
-import { useUIStore } from '../../store/uiStore';
+import AppSidebar from './Sidebar';
+import { SidebarProvider, SidebarInset } from '../ui/sidebar';
 
 export default function Layout() {
-  const { sidebarCollapsed } = useUIStore();
-
-  return (
-    <div className="flex h-screen bg-background text-foreground">
-      <Sidebar />
-      <main
-        className={`flex-1 overflow-auto transition-all duration-300 ${
-          sidebarCollapsed ? 'ml-16' : 'ml-64'
-        }`}
-      >
-        <div className="p-6">
-          <Outlet />
-        </div>
-      </main>
-    </div>
-  );
+    return (
+        <SidebarProvider defaultOpen={true}>
+            <AppSidebar />
+            <SidebarInset className="bg-background">
+                <div className="p-6 h-full overflow-auto">
+                    <Outlet />
+                </div>
+            </SidebarInset>
+        </SidebarProvider>
+    );
 }

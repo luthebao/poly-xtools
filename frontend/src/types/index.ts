@@ -311,3 +311,15 @@ export interface PolymarketConfig {
     freshWalletMaxNonce?: number;
     freshWalletMaxAge?: number;
 }
+
+// Notification types
+export type NotificationChannel = string;
+
+export interface NotificationConfig {
+    enabled: boolean;
+    channel: NotificationChannel;
+    telegramBotToken: string;
+    telegramChatIDs: string[];
+    notifyBigTrades: boolean;
+    notifyFreshWallets: boolean;
+}

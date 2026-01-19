@@ -1,96 +1,194 @@
-import { NavLink } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
   Users,
   Search,
   BarChart3,
   Settings,
-  ChevronLeft,
-  ChevronRight,
   Activity,
   Wallet,
+  Download,
+  RefreshCw,
+  ExternalLink,
+  Sparkles,
 } from 'lucide-react';
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarRail,
+  useSidebar,
+} from '../ui/sidebar';
+import { CheckForUpdates, GetAppVersion } from '../../../wailsjs/go/main/App';
+import { UpdateInfo } from '../../types';
 import { useUIStore } from '../../store/uiStore';
-import { Button } from '../ui/button';
-import { Separator } from '../ui/separator';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { cn } from '../../lib/utils';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/accounts', icon: Users, label: 'Accounts' },
   { to: '/search', icon: Search, label: 'Search' },
   { to: '/metrics', icon: BarChart3, label: 'Metrics' },
-  { to: '/polymarket', icon: Activity, label: 'Polymarket Live', end: true },
-  { to: '/polymarket/wallets', icon: Wallet, label: 'Wallets' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
-export default function Sidebar() {
-  const { sidebarCollapsed, toggleSidebar } = useUIStore();
+const polymarketItems = [
+  { to: '/polymarket', icon: Activity, label: 'Live Feed', end: true },
+  { to: '/polymarket/wallets', icon: Wallet, label: 'Wallets' },
+];
+
+export default function AppSidebar() {
+  const location = useLocation();
+  const { state } = useSidebar();
+  const { showToast } = useUIStore();
+  const [version, setVersion] = useState<string>('');
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [isChecking, setIsChecking] = useState(false);
+
+  const isCollapsed = state === 'collapsed';
+
+  useEffect(() => {
+    GetAppVersion().then(setVersion).catch(console.error);
+  }, []);
+
+  const handleCheckForUpdates = async () => {
+    setIsChecking(true);
+    try {
+      const info = await CheckForUpdates();
+      setUpdateInfo(info);
+      if (info.isUpdateAvailable) {
+        showToast(`New version ${info.latestVersion} available!`, 'info');
+      } else {
+        showToast('You are using the latest version', 'success');
+      }
+    } catch (err: any) {
+      const errorMsg = typeof err === 'string' ? err : (err?.message || 'Failed to check for updates');
+      showToast(errorMsg, 'error');
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  const openReleasePage = () => {
+    if (updateInfo?.releaseUrl) {
+      window.open(updateInfo.releaseUrl, '_blank');
+    }
+  };
+
+  const isActive = (path: string, end?: boolean) => {
+    if (end) {
+      return location.pathname === path;
+    }
+    return location.pathname.startsWith(path);
+  };
+
+  const NavItem = ({ to, icon: Icon, label, end }: { to: string; icon: any; label: string; end?: boolean }) => (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        asChild
+        isActive={isActive(to, end)}
+        tooltip={label}
+      >
+        <NavLink to={to} end={end}>
+          <Icon className="size-4" />
+          <span>{label}</span>
+        </NavLink>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
 
   return (
-    <TooltipProvider delayDuration={0}>
-      <aside
-        className={cn(
-          "fixed left-0 top-0 h-full bg-card border-r border-border transition-all duration-300 z-10 flex flex-col",
-          sidebarCollapsed ? 'w-16' : 'w-64'
-        )}
-      >
-        <div className="flex items-center justify-between p-4 h-16">
-          {!sidebarCollapsed && (
-            <h1 className="text-xl font-bold text-primary">XTools</h1>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleSidebar}
-            className={cn("h-8 w-8", sidebarCollapsed && "mx-auto")}
-          >
-            {sidebarCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-          </Button>
-        </div>
+    <Sidebar collapsible="icon">
+      <SidebarHeader className="border-b border-sidebar-border">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton size="lg" tooltip="XTools">
+              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/60">
+                <Sparkles className="size-4 text-primary-foreground" />
+              </div>
+              <span className="font-bold text-base">XTools</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
 
-        <Separator />
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>Main</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {navItems.map((item) => (
+                <NavItem key={item.to} {...item} />
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
 
-        <nav className="flex-1 p-2 space-y-1">
-          {navItems.map(({ to, icon: Icon, label, end }) => {
-            const linkContent = (
-              <NavLink
-                key={to}
-                to={to}
-                end={end}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors",
-                    isActive
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                  )
-                }
+        <SidebarGroup>
+          <SidebarGroupLabel>Polymarket</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {polymarketItems.map((item) => (
+                <NavItem key={item.to} {...item} />
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>System</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <NavItem to="/settings" icon={Settings} label="Settings" />
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+
+      <SidebarFooter className="border-t border-sidebar-border">
+        <SidebarMenu>
+          {updateInfo?.isUpdateAvailable ? (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={openReleasePage}
+                tooltip={`Update to ${updateInfo.latestVersion}`}
+                className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white"
               >
-                <Icon size={20} />
-                {!sidebarCollapsed && <span className="font-medium">{label}</span>}
-              </NavLink>
-            );
+                <ExternalLink className="size-4" />
+                <span className="truncate">Update {updateInfo.latestVersion}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ) : (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={handleCheckForUpdates}
+                disabled={isChecking}
+                tooltip={isChecking ? 'Checking...' : 'Check for Updates'}
+              >
+                {isChecking ? (
+                  <RefreshCw className="size-4 animate-spin" />
+                ) : (
+                  <Download className="size-4" />
+                )}
+                <span className="truncate">{isChecking ? 'Checking...' : 'Check Updates'}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
+        </SidebarMenu>
+        {!isCollapsed && version && (
+          <p className="text-[10px] text-sidebar-foreground/50 text-center font-mono px-2">
+            v{version}
+          </p>
+        )}
+      </SidebarFooter>
 
-            if (sidebarCollapsed) {
-              return (
-                <Tooltip key={to}>
-                  <TooltipTrigger asChild>
-                    {linkContent}
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="font-medium">
-                    {label}
-                  </TooltipContent>
-                </Tooltip>
-              );
-            }
-
-            return linkContent;
-          })}
-        </nav>
-      </aside>
-    </TooltipProvider>
+      <SidebarRail />
+    </Sidebar>
   );
 }

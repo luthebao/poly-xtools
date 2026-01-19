@@ -86,6 +86,10 @@ export function GetExportPath(arg1) {
   return window['go']['main']['App']['GetExportPath'](arg1);
 }
 
+export function GetNotificationConfig() {
+  return window['go']['main']['App']['GetNotificationConfig']();
+}
+
 export function GetPendingReplies(arg1) {
   return window['go']['main']['App']['GetPendingReplies'](arg1);
 }
@@ -134,6 +138,10 @@ export function ManualSearch(arg1, arg2, arg3) {
   return window['go']['main']['App']['ManualSearch'](arg1, arg2, arg3);
 }
 
+export function OpenFolder(arg1) {
+  return window['go']['main']['App']['OpenFolder'](arg1);
+}
+
 export function RejectReply(arg1) {
   return window['go']['main']['App']['RejectReply'](arg1);
 }
@@ -152,6 +160,14 @@ export function SaveBrowserAuth(arg1, arg2) {
 
 export function SearchTweets(arg1) {
   return window['go']['main']['App']['SearchTweets'](arg1);
+}
+
+export function SendTestNotification() {
+  return window['go']['main']['App']['SendTestNotification']();
+}
+
+export function SetNotificationConfig(arg1) {
+  return window['go']['main']['App']['SetNotificationConfig'](arg1);
 }
 
 export function SetPolymarketConfig(arg1) {

@@ -13,18 +13,26 @@ import (
 	"xtools/internal/workers"
 )
 
+// NotificationServiceInterface defines methods needed from NotificationService
+type NotificationServiceInterface interface {
+	GetConfig() domain.NotificationConfig
+	UpdateConfig(config domain.NotificationConfig) error
+	SendTestNotification(ctx context.Context) error
+}
+
 // Handlers provides all Wails-bound handler methods
 type Handlers struct {
-	accountSvc     *services.AccountService
-	searchSvc      *services.SearchService
-	replySvc       *services.ReplyService
-	polymarketSvc  *services.PolymarketService
-	workerPool     *workers.WorkerPool
-	configStore    ports.ConfigStore
-	metricsStore   ports.MetricsStore
-	excelExporter  ports.ExcelExporter
-	activityLogger ports.ActivityLogger
-	updater        *updater.Updater
+	accountSvc      *services.AccountService
+	searchSvc       *services.SearchService
+	replySvc        *services.ReplyService
+	polymarketSvc   *services.PolymarketService
+	notificationSvc NotificationServiceInterface
+	workerPool      *workers.WorkerPool
+	configStore     ports.ConfigStore
+	metricsStore    ports.MetricsStore
+	excelExporter   ports.ExcelExporter
+	activityLogger  ports.ActivityLogger
+	updater         *updater.Updater
 }
 
 // NewHandlers creates a new handlers instance
@@ -33,6 +41,7 @@ func NewHandlers(
 	searchSvc *services.SearchService,
 	replySvc *services.ReplyService,
 	polymarketSvc *services.PolymarketService,
+	notificationSvc NotificationServiceInterface,
 	workerPool *workers.WorkerPool,
 	configStore ports.ConfigStore,
 	metricsStore ports.MetricsStore,
@@ -40,16 +49,17 @@ func NewHandlers(
 	activityLogger ports.ActivityLogger,
 ) *Handlers {
 	return &Handlers{
-		accountSvc:     accountSvc,
-		searchSvc:      searchSvc,
-		replySvc:       replySvc,
-		polymarketSvc:  polymarketSvc,
-		workerPool:     workerPool,
-		configStore:    configStore,
-		metricsStore:   metricsStore,
-		excelExporter:  excelExporter,
-		activityLogger: activityLogger,
-		updater:        updater.NewUpdater(),
+		accountSvc:      accountSvc,
+		searchSvc:       searchSvc,
+		replySvc:        replySvc,
+		polymarketSvc:   polymarketSvc,
+		notificationSvc: notificationSvc,
+		workerPool:      workerPool,
+		configStore:     configStore,
+		metricsStore:    metricsStore,
+		excelExporter:   excelExporter,
+		activityLogger:  activityLogger,
+		updater:         updater.NewUpdater(),
 	}
 }
 
@@ -411,4 +421,32 @@ func (h *Handlers) GetPolymarketWallets(limit int) ([]domain.WalletProfile, erro
 		return nil, fmt.Errorf("polymarket service not initialized")
 	}
 	return h.polymarketSvc.GetWallets(limit)
+}
+
+// === Notification Handlers ===
+
+// GetNotificationConfig returns the current notification configuration
+func (h *Handlers) GetNotificationConfig() domain.NotificationConfig {
+	if h.notificationSvc == nil {
+		return domain.DefaultNotificationConfig()
+	}
+	return h.notificationSvc.GetConfig()
+}
+
+// SetNotificationConfig updates the notification configuration
+func (h *Handlers) SetNotificationConfig(config domain.NotificationConfig) error {
+	if h.notificationSvc == nil {
+		return fmt.Errorf("notification service not initialized")
+	}
+	return h.notificationSvc.UpdateConfig(config)
+}
+
+// SendTestNotification sends a test notification
+func (h *Handlers) SendTestNotification() error {
+	if h.notificationSvc == nil {
+		return fmt.Errorf("notification service not initialized")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return h.notificationSvc.SendTestNotification(ctx)
 }
