@@ -10,6 +10,8 @@ import {
     ArrowUp,
     ArrowDown,
     ArrowUpDown,
+    Bell,
+    BellOff,
 } from 'lucide-react';
 import Button from '../components/common/Button';
 import { Badge } from '../components/ui/badge';
@@ -22,8 +24,8 @@ import {
     SelectValue,
 } from '../components/ui/select';
 import { useUIStore } from '../store/uiStore';
-import { WalletProfile } from '../types';
-import { GetPolymarketWallets } from '../../wailsjs/go/main/App';
+import { WalletProfile, NotificationConfig } from '../types';
+import { GetPolymarketWallets, GetNotificationConfig, SetNotificationConfig } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 
 function shortenAddress(addr: string): string {
@@ -54,6 +56,10 @@ export default function PolymarketWallets() {
     const [maxTrades, setMaxTrades] = useState<number | ''>('');
     const [freshnessFilter, setFreshnessFilter] = useState<string>('all');
     const [statusFilter, setStatusFilter] = useState<string>('all');
+
+    // Notification settings
+    const [notificationConfig, setNotificationConfig] = useState<NotificationConfig | null>(null);
+    const [notifyFreshWallets, setNotifyFreshWallets] = useState(false);
 
     // Ref for auto-refresh
     const autoRefreshRef = useRef(autoRefresh);
@@ -177,10 +183,40 @@ export default function PolymarketWallets() {
         }
     }, [showToast]);
 
+    const loadNotificationConfig = useCallback(async () => {
+        try {
+            const cfg = await GetNotificationConfig();
+            setNotificationConfig(cfg);
+            setNotifyFreshWallets(cfg.notifyFreshWallets || false);
+        } catch (err) {
+            console.error('Failed to load notification config:', err);
+        }
+    }, []);
+
+    const handleToggleNotifyFreshWallets = async (enabled: boolean) => {
+        setNotifyFreshWallets(enabled);
+        if (notificationConfig) {
+            try {
+                const updatedConfig: NotificationConfig = {
+                    ...notificationConfig,
+                    notifyFreshWallets: enabled,
+                };
+                await SetNotificationConfig(updatedConfig);
+                setNotificationConfig(updatedConfig);
+                showToast(enabled ? 'Fresh wallet notifications enabled' : 'Fresh wallet notifications disabled', 'success');
+            } catch (err: any) {
+                const errorMsg = typeof err === 'string' ? err : err?.message || 'Failed to update notification settings';
+                showToast(errorMsg, 'error');
+                setNotifyFreshWallets(!enabled); // Revert on error
+            }
+        }
+    };
+
     // Initial load
     useEffect(() => {
         loadWallets();
-    }, [loadWallets]);
+        loadNotificationConfig();
+    }, [loadWallets, loadNotificationConfig]);
 
     // Auto-refresh every 10 seconds
     useEffect(() => {
@@ -226,6 +262,22 @@ export default function PolymarketWallets() {
                     </Badge>
                 </div>
                 <div className="flex items-center gap-2">
+                    {/* Fresh Wallet Notification Toggle */}
+                    <label
+                        className={`flex items-center gap-2 text-sm cursor-pointer ${!notificationConfig?.telegramBotToken || (notificationConfig?.telegramChatIDs?.length ?? 0) === 0 ? 'opacity-50' : ''}`}
+                        title={!notificationConfig?.telegramBotToken || (notificationConfig?.telegramChatIDs?.length ?? 0) === 0 ? 'Configure Telegram in Settings first' : 'Toggle fresh wallet notifications'}
+                    >
+                        <input
+                            type="checkbox"
+                            checked={notifyFreshWallets}
+                            onChange={(e) => handleToggleNotifyFreshWallets(e.target.checked)}
+                            disabled={!notificationConfig?.telegramBotToken || (notificationConfig?.telegramChatIDs?.length ?? 0) === 0}
+                            className="rounded border-border"
+                        />
+                        {notifyFreshWallets ? <Bell size={14} className="text-primary" /> : <BellOff size={14} className="text-muted-foreground" />}
+                        Notify Fresh
+                    </label>
+                    <div className="w-px h-4 bg-border" />
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                         <input
                             type="checkbox"

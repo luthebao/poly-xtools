@@ -38,10 +38,11 @@ type App struct {
 	excelExporter    *storage.ExcelExporter
 
 	// Services
-	accountSvc    *services.AccountService
-	searchSvc     *services.SearchService
-	replySvc      *services.ReplyService
-	polymarketSvc *services.PolymarketService
+	accountSvc      *services.AccountService
+	searchSvc       *services.SearchService
+	replySvc        *services.ReplyService
+	polymarketSvc   *services.PolymarketService
+	notificationSvc *services.NotificationService
 
 	// Workers
 	workerPool *workers.WorkerPool
@@ -139,6 +140,10 @@ func (a *App) startup(ctx context.Context) {
 	a.searchSvc = services.NewSearchService(a.accountSvc, a.metricsStore, a.excelExporter, a.eventBus)
 	a.replySvc = services.NewReplyService(a.accountSvc, a.searchSvc, llmFactory, a.replyStore, a.metricsStore, a.eventBus, a.activityLogger)
 	a.polymarketSvc = services.NewPolymarketService(a.polymarketStore, a.eventBus, dbPath)
+	a.notificationSvc = services.NewNotificationService(a.polymarketStore, a.eventBus)
+
+	// Start notification service to listen for events
+	a.notificationSvc.Start()
 
 	// Initialize worker pool
 	a.workerPool = workers.NewWorkerPool(a.searchSvc, a.replySvc, a.configStore, a.eventBus, a.activityLogger)
@@ -149,6 +154,7 @@ func (a *App) startup(ctx context.Context) {
 		a.searchSvc,
 		a.replySvc,
 		a.polymarketSvc,
+		a.notificationSvc,
 		a.workerPool,
 		a.configStore,
 		a.metricsStore,
@@ -187,6 +193,9 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	if a.polymarketSvc != nil {
 		a.polymarketSvc.Close()
+	}
+	if a.notificationSvc != nil {
+		a.notificationSvc.Stop()
 	}
 }
 
@@ -427,4 +436,21 @@ func (a *App) SetPolymarketConfig(config domain.PolymarketConfig) {
 // GetPolymarketWallets returns all wallets from the database
 func (a *App) GetPolymarketWallets(limit int) ([]domain.WalletProfile, error) {
 	return a.handlers.GetPolymarketWallets(limit)
+}
+
+// === Notification Bindings ===
+
+// GetNotificationConfig returns the current notification configuration
+func (a *App) GetNotificationConfig() domain.NotificationConfig {
+	return a.handlers.GetNotificationConfig()
+}
+
+// SetNotificationConfig updates the notification configuration
+func (a *App) SetNotificationConfig(config domain.NotificationConfig) error {
+	return a.handlers.SetNotificationConfig(config)
+}
+
+// SendTestNotification sends a test notification
+func (a *App) SendTestNotification() error {
+	return a.handlers.SendTestNotification()
 }

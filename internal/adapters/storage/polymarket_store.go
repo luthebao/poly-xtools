@@ -672,3 +672,18 @@ func (s *PolymarketStore) GetWalletsForRefresh(limit int) ([]string, error) {
 
 	return addresses, nil
 }
+
+// SaveNotificationConfig saves the notification config to the database
+func (s *PolymarketStore) SaveNotificationConfig(config domain.NotificationConfig) error {
+	return s.SaveSetting("notification_config", config)
+}
+
+// LoadNotificationConfig loads the notification config from the database
+func (s *PolymarketStore) LoadNotificationConfig() (domain.NotificationConfig, error) {
+	var config domain.NotificationConfig
+	err := s.LoadSetting("notification_config", &config)
+	if err != nil {
+		return domain.DefaultNotificationConfig(), err
+	}
+	return config, nil
+}

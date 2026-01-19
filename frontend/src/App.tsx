@@ -11,23 +11,23 @@ import PolymarketWallets from './pages/PolymarketWallets';
 import { Toaster } from './components/ui/sonner';
 
 function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="accounts" element={<Accounts />} />
-          <Route path="accounts/:accountId" element={<AccountDetail />} />
-          <Route path="search" element={<Search />} />
-          <Route path="metrics" element={<Metrics />} />
-          <Route path="polymarket" element={<PolymarketWatcher />} />
-          <Route path="polymarket/wallets" element={<PolymarketWallets />} />
-          <Route path="settings" element={<Settings />} />
-        </Route>
-      </Routes>
-      <Toaster />
-    </BrowserRouter>
-  );
+    return (
+        <BrowserRouter>
+            <Routes>
+                <Route path="/" element={<Layout />}>
+                    <Route index element={<Dashboard />} />
+                    <Route path="accounts" element={<Accounts />} />
+                    <Route path="accounts/:accountId" element={<AccountDetail />} />
+                    <Route path="search" element={<Search />} />
+                    <Route path="metrics" element={<Metrics />} />
+                    <Route path="polymarket" element={<PolymarketWatcher />} />
+                    <Route path="polymarket/wallets" element={<PolymarketWallets />} />
+                    <Route path="settings" element={<Settings />} />
+                </Route>
+            </Routes>
+            <Toaster />
+        </BrowserRouter>
+    );
 }
 
 export default App;

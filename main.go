@@ -21,7 +21,7 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:     "XTools",
+		Title:     "Poly XTools",
 		Width:     1024,
 		Height:    768,
 		MinWidth:  800,
@@ -37,8 +37,8 @@ func main() {
 		Mac: &mac.Options{
 			TitleBar: mac.TitleBarDefault(),
 			About: &mac.AboutInfo{
-				Title:   "XTools",
-				Message: "Twitter Automation Tool",
+				Title:   "Poly XTools",
+				Message: "Polymarket x Twitter Automation Tool",
 				Icon:    icon,
 			},
 			WebviewIsTransparent: false,

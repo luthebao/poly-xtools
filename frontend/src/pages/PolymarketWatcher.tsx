@@ -16,6 +16,8 @@ import {
     ChevronLeft,
     ChevronRight,
     ExternalLink,
+    Bell,
+    BellOff,
 } from 'lucide-react';
 import Button from '../components/common/Button';
 import { Badge } from '../components/ui/badge';
@@ -36,7 +38,7 @@ import {
 } from '../components/ui/dialog';
 import { useUIStore } from '../store/uiStore';
 import { usePolymarketStore } from '../store/polymarketStore';
-import { PolymarketEvent, PolymarketConfig, WalletProfile } from '../types';
+import { PolymarketEvent, PolymarketConfig, WalletProfile, NotificationConfig } from '../types';
 import {
     StartPolymarketWatcher,
     StopPolymarketWatcher,
@@ -47,6 +49,8 @@ import {
     GetPolymarketConfig,
     SetPolymarketConfig,
     GetPolymarketWallets,
+    GetNotificationConfig,
+    SetNotificationConfig,
 } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsOff, BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { cn } from '@/lib/utils';
@@ -101,6 +105,10 @@ export default function PolymarketWatcher() {
     const [freshWalletMaxBets, setFreshWalletMaxBets] = useState(10);
     const [freshNewbieMaxBets, setFreshNewbieMaxBets] = useState(20);
     const [customFreshMaxBets, setCustomFreshMaxBets] = useState(0);
+
+    // Notification settings
+    const [notificationConfig, setNotificationConfig] = useState<NotificationConfig | null>(null);
+    const [notifyBigTrades, setNotifyBigTrades] = useState(false);
 
     // Helper to get notional value
     const getEventNotional = (event: PolymarketEvent): number => {
@@ -164,6 +172,16 @@ export default function PolymarketWatcher() {
             setCustomFreshMaxBets(cfg.customFreshMaxBets || 0);
         } catch (err) {
             console.error('Failed to load config:', err);
+        }
+    }, []);
+
+    const loadNotificationConfig = useCallback(async () => {
+        try {
+            const cfg = await GetNotificationConfig();
+            setNotificationConfig(cfg);
+            setNotifyBigTrades(cfg.notifyBigTrades || false);
+        } catch (err) {
+            console.error('Failed to load notification config:', err);
         }
     }, []);
 
@@ -242,6 +260,7 @@ export default function PolymarketWatcher() {
         loadConfig();
         loadSavedFilter();
         loadFreshWallets();
+        loadNotificationConfig();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -346,6 +365,17 @@ export default function PolymarketWatcher() {
             };
             await SetPolymarketConfig(updatedConfig);
             setConfig(updatedConfig);
+
+            // Also save notification settings if changed
+            if (notificationConfig && notifyBigTrades !== notificationConfig.notifyBigTrades) {
+                const updatedNotificationConfig: NotificationConfig = {
+                    ...notificationConfig,
+                    notifyBigTrades,
+                };
+                await SetNotificationConfig(updatedNotificationConfig);
+                setNotificationConfig(updatedNotificationConfig);
+            }
+
             showToast('Settings saved. Restart watcher to apply changes.', 'success');
             setShowSettings(false);
         } catch (err) {
@@ -716,6 +746,35 @@ export default function PolymarketWatcher() {
                     </DialogHeader>
 
                     <div className="space-y-4 py-4">
+                        {/* Telegram Notifications Toggle */}
+                        <div className="p-3 rounded-lg bg-primary/10 border border-primary/30">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    {notifyBigTrades ? (
+                                        <Bell size={16} className="text-primary" />
+                                    ) : (
+                                        <BellOff size={16} className="text-muted-foreground" />
+                                    )}
+                                    <span className="font-medium">Telegram Notifications</span>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={notifyBigTrades}
+                                        onChange={(e) => setNotifyBigTrades(e.target.checked)}
+                                        className="sr-only peer"
+                                        disabled={!notificationConfig?.enabled || !notificationConfig?.telegramBotToken}
+                                    />
+                                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary peer-disabled:opacity-50"></div>
+                                </label>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-2">
+                                {notificationConfig?.enabled && notificationConfig?.telegramBotToken
+                                    ? 'Receive notifications for big trades matching your filter settings.'
+                                    : 'Configure Telegram in Settings page first to enable notifications.'}
+                            </p>
+                        </div>
+
                         {/* Fresh Wallet Detection Info */}
                         <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/30">
                             <div className="flex items-center gap-2 text-orange-500 font-medium mb-2">

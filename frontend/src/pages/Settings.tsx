@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, RefreshCw, FileText, Download, ExternalLink, Check, Trash2, AlertTriangle, Database, ScrollText } from 'lucide-react';
+import { FolderOpen, RefreshCw, FileText, Download, ExternalLink, Check, Trash2, AlertTriangle, Database, ScrollText, Bell, Send, Eye, EyeOff } from 'lucide-react';
 import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
 import ConfirmModal from '../components/common/ConfirmModal';
 import LogsViewerModal from '../components/common/LogsViewerModal';
 import { useUIStore } from '../store/uiStore';
-import { UpdateInfo, DatabaseInfo } from '../types';
-import { CheckForUpdates, GetAppVersion, GetDataDir, GetDatabaseInfo, ClearPolymarketEvents, OpenFolder } from '../../wailsjs/go/main/App';
+import { UpdateInfo, DatabaseInfo, NotificationConfig } from '../types';
+import { CheckForUpdates, GetAppVersion, GetDataDir, GetDatabaseInfo, ClearPolymarketEvents, OpenFolder, GetNotificationConfig, SetNotificationConfig, SendTestNotification } from '../../wailsjs/go/main/App';
 
 export default function Settings() {
     const { showToast } = useUIStore();
@@ -20,13 +21,85 @@ export default function Settings() {
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [showLogsModal, setShowLogsModal] = useState(false);
 
+    // Notification settings
+    const [notificationConfig, setNotificationConfig] = useState<NotificationConfig | null>(null);
+    const [telegramBotToken, setTelegramBotToken] = useState('');
+    const [telegramChatIDs, setTelegramChatIDs] = useState(''); // Comma-separated string
+    const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+    const [isSavingNotification, setIsSavingNotification] = useState(false);
+    const [isSendingTest, setIsSendingTest] = useState(false);
+    const [showBotToken, setShowBotToken] = useState(false);
+
     const DB_SIZE_WARNING_THRESHOLD = 20 * 1024 * 1024; // 20MB
 
     useEffect(() => {
         loadVersion();
         loadDataDir();
         loadDbInfo();
+        loadNotificationConfig();
     }, []);
+
+    const loadNotificationConfig = async () => {
+        try {
+            const config = await GetNotificationConfig();
+            setNotificationConfig(config);
+            setTelegramBotToken(config.telegramBotToken || '');
+            // Join array into comma-separated string for display
+            setTelegramChatIDs((config.telegramChatIDs || []).join(', '));
+            setNotificationsEnabled(config.enabled || false);
+        } catch (err) {
+            console.error('Failed to load notification config:', err);
+        }
+    };
+
+    // Parse comma-separated chat IDs into array
+    const parseChatIDs = (input: string): string[] => {
+        return input.split(',').map(id => id.trim()).filter(id => id.length > 0);
+    };
+
+    const handleSaveNotificationConfig = async () => {
+        setIsSavingNotification(true);
+        try {
+            const chatIDsArray = parseChatIDs(telegramChatIDs);
+            const newConfig: NotificationConfig = {
+                enabled: notificationsEnabled,
+                channel: 'telegram',
+                telegramBotToken,
+                telegramChatIDs: chatIDsArray,
+                notifyBigTrades: notificationConfig?.notifyBigTrades ?? false,
+                notifyFreshWallets: notificationConfig?.notifyFreshWallets ?? false,
+            };
+            await SetNotificationConfig(newConfig);
+            setNotificationConfig(newConfig);
+            showToast('Notification settings saved', 'success');
+        } catch (err: any) {
+            const errorMsg = typeof err === 'string' ? err : (err?.message || 'Failed to save notification settings');
+            showToast(errorMsg, 'error');
+        } finally {
+            setIsSavingNotification(false);
+        }
+    };
+
+    const handleSendTestNotification = async () => {
+        // Save first if config changed
+        const currentChatIDsStr = (notificationConfig?.telegramChatIDs || []).join(', ');
+        if (telegramBotToken !== notificationConfig?.telegramBotToken ||
+            telegramChatIDs !== currentChatIDsStr ||
+            notificationsEnabled !== notificationConfig?.enabled) {
+            await handleSaveNotificationConfig();
+        }
+
+        setIsSendingTest(true);
+        try {
+            await SendTestNotification();
+            showToast('Test notification sent! Check your Telegram.', 'success');
+        } catch (err: any) {
+            const errorMsg = typeof err === 'string' ? err : (err?.message || 'Failed to send test notification');
+            showToast(errorMsg, 'error');
+        } finally {
+            setIsSendingTest(false);
+        }
+    };
 
     const loadVersion = async () => {
         try {
@@ -97,6 +170,93 @@ export default function Settings() {
     return (
         <div className="space-y-6">
             <h1 className="text-2xl font-bold">Settings</h1>
+
+            {/* Telegram Notifications Card */}
+            <Card title="Telegram Notifications">
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <Bell size={18} className={notificationsEnabled ? 'text-primary' : 'text-muted-foreground'} />
+                            <span className="font-medium">Enable Notifications</span>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={notificationsEnabled}
+                                onChange={(e) => setNotificationsEnabled(e.target.checked)}
+                                className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
+                        </label>
+                    </div>
+
+                    <p className="text-sm text-muted-foreground">
+                        Receive Telegram notifications for big trades and fresh wallet detections.
+                        Create a bot via <a href="https://t.me/botfather" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">@BotFather</a> and get your Chat ID from <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">@userinfobot</a>.
+                    </p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Bot Token</label>
+                            <div className="relative">
+                                <Input
+                                    type={showBotToken ? 'text' : 'password'}
+                                    placeholder="1234567890:ABCdef..."
+                                    value={telegramBotToken}
+                                    onChange={(e) => setTelegramBotToken(e.target.value)}
+                                    className="pr-10"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowBotToken(!showBotToken)}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                >
+                                    {showBotToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                                </button>
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Chat / Group IDs</label>
+                            <Input
+                                type="text"
+                                placeholder="-100123456789, -100987654321"
+                                value={telegramChatIDs}
+                                onChange={(e) => setTelegramChatIDs(e.target.value)}
+                            />
+                            <p className="text-xs text-muted-foreground">Separate multiple IDs with commas</p>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2">
+                        <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={handleSaveNotificationConfig}
+                            loading={isSavingNotification}
+                            disabled={!telegramBotToken || !telegramChatIDs.trim()}
+                        >
+                            <Check size={16} />
+                            Save
+                        </Button>
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={handleSendTestNotification}
+                            loading={isSendingTest}
+                            disabled={!notificationsEnabled || !telegramBotToken || !telegramChatIDs.trim()}
+                        >
+                            <Send size={16} />
+                            Send Test
+                        </Button>
+                        {notificationConfig?.enabled && notificationConfig?.telegramBotToken && (notificationConfig?.telegramChatIDs?.length ?? 0) > 0 && (
+                            <Badge variant="outline" className="text-green-500 border-green-500/50">
+                                <Check size={12} className="mr-1" />
+                                Configured ({notificationConfig.telegramChatIDs.length} chat{notificationConfig.telegramChatIDs.length !== 1 ? 's' : ''})
+                            </Badge>
+                        )}
+                    </div>
+                </div>
+            </Card>
 
             <Card title="Data Directory">
                 <div className="space-y-4">

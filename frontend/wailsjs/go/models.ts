@@ -539,6 +539,28 @@ export namespace domain {
 	    }
 	}
 	
+	export class NotificationConfig {
+	    enabled: boolean;
+	    channel: string;
+	    telegramBotToken: string;
+	    telegramChatIDs: string[];
+	    notifyBigTrades: boolean;
+	    notifyFreshWallets: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new NotificationConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.channel = source["channel"];
+	        this.telegramBotToken = source["telegramBotToken"];
+	        this.telegramChatIDs = source["telegramChatIDs"];
+	        this.notifyBigTrades = source["notifyBigTrades"];
+	        this.notifyFreshWallets = source["notifyFreshWallets"];
+	    }
+	}
 	export class PolymarketConfig {
 	    enabled: boolean;
 	    minTradeSize: number;
