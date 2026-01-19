@@ -2,6 +2,8 @@ package main
 
 import (
 	"embed"
+	"io/fs"
+	"log"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -10,6 +12,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
+//go:embed all:frontend/dist
 var assets embed.FS
 
 //go:embed build/appicon.png
@@ -19,15 +22,21 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 
+	// Get the frontend/dist subdirectory from embedded assets
+	frontendDist, err := fs.Sub(assets, "frontend/dist")
+	if err != nil {
+		log.Fatal("Failed to load frontend assets:", err)
+	}
+
 	// Create application with options
-	err := wails.Run(&options.App{
+	err = wails.Run(&options.App{
 		Title:     "Poly XTools",
 		Width:     1124,
 		Height:    768,
 		MinWidth:  800,
 		MinHeight: 600,
 		AssetServer: &assetserver.Options{
-			Assets: assets,
+			Assets: frontendDist,
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
